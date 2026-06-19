@@ -1,0 +1,55 @@
+{
+  "name": "frisk",
+  "version": "0.1.0",
+  "description": "Scan AI-agent skills for prompt injection, data exfiltration, and memory poisoning before you install them.",
+  "type": "module",
+  "bin": {
+    "frisk": "dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "corpus",
+    "action",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsx src/cli.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "skill",
+    "security",
+    "prompt-injection",
+    "supply-chain",
+    "claude",
+    "scanner",
+    "owasp"
+  ],
+  "license": "MIT",
+  "author": "",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "yaml": "^2.6.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsup": "^8.3.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
