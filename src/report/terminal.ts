@@ -37,7 +37,7 @@ export function renderTerminal(report: Report, opts: { color?: boolean } = {}): 
   out.push('')
 
   for (const f of report.findings) {
-    const label = f.severity.toUpperCase().padEnd(4)
+    const label = f.severity.toUpperCase().padEnd(6)
     const head = `  ${paint(label, SEV_COLOR[f.severity])}  ${f.category}  ${f.owasp}  ${f.file}:${f.line}`
     out.push(f.source === 'llm' ? `${head} ${paint('(llm)', 'gray')}` : head)
     out.push(`    ${f.message}`)
