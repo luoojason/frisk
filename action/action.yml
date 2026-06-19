@@ -1,0 +1,45 @@
+name: frisk
+description: Scan AI-agent skills for prompt injection, data exfiltration, and memory poisoning before you install them.
+branding:
+  icon: shield
+  color: red
+
+inputs:
+  path:
+    description: Path to a skill or a folder of skills to scan
+    required: false
+    default: '.'
+  fail-on:
+    description: Exit non-zero at this severity or above (high, medium, low)
+    required: false
+    default: high
+  min-confidence:
+    description: Hide findings below this confidence (high, medium, low)
+    required: false
+    default: medium
+  llm:
+    description: Run the optional LLM judge (requires ANTHROPIC_API_KEY in env)
+    required: false
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+    - name: Run frisk
+      shell: bash
+      run: |
+        npx --yes frisk@latest "${{ inputs.path }}" \
+          --badge badge.json \
+          --fail-on "${{ inputs.fail-on }}" \
+          --min-confidence "${{ inputs.min-confidence }}" \
+          ${{ inputs.llm == 'true' && '--llm' || '' }} \
+          --sarif > frisk.sarif
+    - name: Upload SARIF to code scanning
+      if: always()
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: frisk.sarif
