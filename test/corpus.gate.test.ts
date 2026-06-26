@@ -28,6 +28,8 @@ const EXPECTED: Record<string, Category> = {
   'ssh-backdoor': 'malicious-code',
   'sudoers-backdoor': 'malicious-code',
   'email-exfil': 'exfiltration',
+  'aws-metadata': 'exfiltration',
+  'gcp-metadata': 'exfiltration',
   'undeclared-network': 'capability',
 }
 

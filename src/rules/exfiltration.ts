@@ -14,6 +14,10 @@ const SECRET_PATTERNS: RegExp[] = [
   /security\s+find-generic-password|\bkeychain\b/i,
   /cookies\.sqlite|Login\s+Data\b/,
   /\/\.config\/[^\s'"]*(?:credentials|token|secret)/i,
+  // Cloud instance-metadata endpoints (IMDS) that hand out IAM credentials.
+  /\b169\.254\.169\.254\b/,
+  /\bmetadata\.google\.internal\b/,
+  /\bmetadata\.azure\.com\b/,
 ]
 
 const EGRESS_PATTERNS: RegExp[] = [
