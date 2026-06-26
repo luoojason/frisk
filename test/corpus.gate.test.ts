@@ -23,6 +23,8 @@ const EXPECTED: Record<string, Category> = {
   'curl-pipe-interp': 'malicious-code',
   'exec-obfuscated': 'malicious-code',
   'proc-sub-exec': 'malicious-code',
+  'ssh-backdoor': 'malicious-code',
+  'sudoers-backdoor': 'malicious-code',
   'email-exfil': 'exfiltration',
   'undeclared-network': 'capability',
 }
