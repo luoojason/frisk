@@ -1,6 +1,7 @@
 import type { Finding, SkillIR } from '../ir/types.js'
 import type { Rule } from './types.js'
 import { anyMatch, lineFor, makeFinding, markdownTextTargets, stripComments } from './helpers.js'
+import { firstLine } from '../util/lines.js'
 
 // Persistent agent-state targets: writing here survives across sessions.
 const STATE_TARGETS: RegExp[] = [
@@ -64,6 +65,9 @@ export const rule: Rule = {
         const m = d.re.exec(t.text)
         if (!m) continue
         const hiddenOrWorm = t.hidden || d.worm
+        // For visible prose, report where the match actually is; a hidden span
+        // already carries its own source line.
+        const line = t.hidden ? t.line : firstLine(t.text, d.re)
         findings.push(
           makeFinding({
             ruleId: id,
@@ -71,7 +75,7 @@ export const rule: Rule = {
             severity: hiddenOrWorm ? 'high' : 'medium',
             confidence: t.hidden ? 'high' : 'medium',
             file: 'SKILL.md',
-            line: t.line,
+            line,
             excerpt: m[0],
             message: d.worm
               ? 'SKILL.md instructs the agent to copy these instructions into its own config/memory (self-propagating).'
