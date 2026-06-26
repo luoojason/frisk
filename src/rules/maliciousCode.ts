@@ -10,8 +10,12 @@ interface Sig {
 
 const SIGNATURES: Sig[] = [
   // Download-and-execute remote code.
-  { re: /\b(?:curl|wget)\b[^\n|]*\|\s*(?:bash|sh|zsh)\b/, severity: 'high', message: 'Pipes downloaded content directly into a shell (remote code execution).' },
+  { re: /\b(?:curl|wget)\b[^\n|]*\|\s*(?:bash|sh|zsh|perl|ruby|node|php)\b/, severity: 'high', message: 'Pipes downloaded content directly into an interpreter (remote code execution).' },
+  // curl | python (executing stdin). Excludes -m / -c, which are benign (e.g. json.tool).
+  { re: /\b(?:curl|wget)\b[^\n|]*\|\s*python[23]?\b(?![^\n]*\s-[mc]\b)/, severity: 'high', message: 'Pipes downloaded content into a Python interpreter (remote code execution).' },
   { re: /\b(?:curl|wget)\b[^\n]*\$\([^)]*\)[^\n]*\|\s*(?:bash|sh)\b/, severity: 'high', message: 'Downloads and executes remote code.' },
+  // Execute the output of a network download via process substitution: `source <(curl ...)`.
+  { re: /(?:\b(?:source|bash|sh|zsh|eval)\b|(?:^|[\s;&|])\.)\s+<\(\s*(?:curl|wget)\b/, severity: 'high', message: 'Executes the output of a network download via process substitution.' },
   // exec/eval of a value fetched over the network (Python/JS remote code execution).
   { re: /\b(?:exec|eval)\s*\(\s*(?:urllib(?:\.request)?\.urlopen|urlopen|requests\.(?:get|post)|httpx\.(?:get|post|request))\b/, severity: 'high', message: 'Executes code fetched from the network (remote code execution).' },
   // Download a file then make it executable: installing and running a remote binary.
@@ -27,7 +31,7 @@ const SIGNATURES: Sig[] = [
   { re: /\bmkfs(?:\.\w+)?\b/, severity: 'high', message: 'Formats a filesystem.' },
   { re: /:\s*\(\s*\)\s*\{[^}]*:\s*\|\s*:/, severity: 'high', message: 'Fork bomb.' },
   // Obfuscated execution.
-  { re: /\beval\b[^\n]*(?:\$\(|atob\s*\(|base64|fromCharCode|b64decode)/, severity: 'high', message: 'Evaluates obfuscated/decoded content at runtime.' },
+  { re: /\b(?:eval|exec)\b[^\n]*(?:\$\(|atob\s*\(|base64|fromCharCode|b64decode)/, severity: 'high', message: 'Evaluates obfuscated/decoded content at runtime.' },
   { re: /(?:base64\s+(?:-d|--decode)|atob\s*\(|b64decode\s*\()[^\n]*\|\s*(?:bash|sh)/, severity: 'high', message: 'Decodes a blob and pipes it into a shell.' },
   // Dynamic execution (weaker signal).
   { re: /\bos\.system\s*\(/, severity: 'medium', message: 'Executes a shell command via os.system().' },

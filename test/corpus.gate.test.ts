@@ -20,6 +20,9 @@ const EXPECTED: Record<string, Category> = {
   'obfuscated-payload': 'malicious-code',
   'remote-exec': 'malicious-code',
   'download-exec': 'malicious-code',
+  'curl-pipe-interp': 'malicious-code',
+  'exec-obfuscated': 'malicious-code',
+  'proc-sub-exec': 'malicious-code',
   'email-exfil': 'exfiltration',
   'undeclared-network': 'capability',
 }
