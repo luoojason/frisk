@@ -39,8 +39,8 @@ Five categories, each mapped to the OWASP Agentic Top 10:
 |---|---|---|
 | Prompt injection | Override phrasing and hidden instructions (HTML comments, zero-width / bidi characters, invisible styling) | ASI01 |
 | Memory poisoning | Writes to `CLAUDE.md` / `~/.claude` and self-propagating "add this to your own skill" directives | ASI02 |
-| Malicious code | Reverse shells, `curl \| bash`, obfuscated payloads, destructive operations | ASI05 |
-| Data exfiltration | Reading secrets (`~/.aws`, `~/.ssh`, `.env`, tokens) and sending them out | ASI06 |
+| Malicious code | Reverse shells (bash / python / perl / ruby), remote code execution (`curl \| bash` or any interpreter, download-and-run, process substitution, `exec` of fetched or base64-decoded code), persistence and privilege-escalation backdoors (`/etc/sudoers`, `authorized_keys`), obfuscated payloads, destructive operations | ASI05 |
+| Data exfiltration | Reading secrets (`~/.aws`, `~/.ssh`, `.env`, tokens) and sending them out over HTTP, DNS, or email | ASI06 |
 | Capability mismatch | Behavior the skill never declared in its frontmatter | ASI08 |
 
 ## Usage
