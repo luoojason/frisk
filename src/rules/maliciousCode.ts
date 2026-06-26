@@ -25,6 +25,8 @@ const SIGNATURES: Sig[] = [
   { re: /\bnc\b[^\n]*\s-e\b/, severity: 'high', message: 'Uses netcat with command execution (reverse shell).' },
   { re: /\bbash\b\s+-i\b[^\n]*(?:>&|\/dev\/tcp)/, severity: 'high', message: 'Interactive bash redirected to a socket (reverse shell).' },
   { re: /python[0-9.]*\s+-c\s+['"][^'"]*socket[^'"]*(?:connect|SOCK_STREAM)/i, severity: 'high', message: 'Inline Python opening a socket (reverse shell pattern).' },
+  // Spawning an interactive shell (the payload of perl/ruby/etc reverse shells).
+  { re: /\bexec\b[^\n]{0,40}\/bin\/(?:ba)?sh\s+-i\b/, severity: 'high', message: 'Spawns an interactive shell (reverse shell payload).' },
   // Destructive operations.
   { re: /\brm\s+-rf?\b[^\n]*(?:\s|^)(?:~|\/|\$HOME|\$\{HOME\})(?:\s|\/|$)/, severity: 'high', message: 'Recursively deletes a home or root path.' },
   { re: /\bdd\s+if=[^\n]*of=\/dev\/(?:sd|disk|nvme|hd)/, severity: 'high', message: 'Writes directly to a block device (data destruction).' },

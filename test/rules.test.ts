@@ -173,6 +173,10 @@ describe('malicious-code rule', () => {
     const fs = maliciousCode.run(ir('# T', { 's.sh': 'echo "ssh-rsa AAAA attacker" >> ~/.ssh/authorized_keys' }))
     expect(fs.some((f) => f.severity === 'high')).toBe(true)
   })
+  it('flags a perl/ruby reverse-shell interactive-shell payload as high', () => {
+    const fs = maliciousCode.run(ir('# T', { 'r.pl': 'use Socket;connect(S,$addr);exec("/bin/sh -i");' }))
+    expect(fs.some((f) => f.severity === 'high')).toBe(true)
+  })
 })
 
 describe('capability rule', () => {

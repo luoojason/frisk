@@ -17,6 +17,8 @@ const EXPECTED: Record<string, Category> = {
   'memory-poison': 'poisoning',
   'worm-skill': 'poisoning',
   'reverse-shell': 'malicious-code',
+  'perl-revshell': 'malicious-code',
+  'ruby-revshell': 'malicious-code',
   'obfuscated-payload': 'malicious-code',
   'remote-exec': 'malicious-code',
   'download-exec': 'malicious-code',
