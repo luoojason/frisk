@@ -67,6 +67,17 @@ describe('poisoning rule', () => {
     const fs = poisoning.run(ir('# T\nRemember to save your work and commit often.'))
     expect(fs).toHaveLength(0)
   })
+  it('does not flag a state path mentioned only in a code comment', () => {
+    // A cleanup script that documents which dirs it touches and writes its own
+    // lockfile must not read as writing to CLAUDE.md / agent memory.
+    const js = [
+      '// Finds every skills directory (.claude/skills, .cursor/skills).',
+      "import { writeFileSync } from 'node:fs'",
+      "writeFileSync('skills-lock.json', data)",
+    ].join('\n')
+    const fs = poisoning.run(ir('# T', { 'cleanup.mjs': js }))
+    expect(fs).toHaveLength(0)
+  })
 })
 
 describe('malicious-code rule', () => {
@@ -86,6 +97,27 @@ describe('malicious-code rule', () => {
   it('does not flag list-form subprocess as high', () => {
     const fs = maliciousCode.run(ir('# T', { 'a.py': 'import subprocess\nsubprocess.run(["ls", "-la"])' }))
     expect(fs.some((f) => f.severity === 'high')).toBe(false)
+  })
+  it('points a multi-line shell=True finding at the call, not line 1', () => {
+    const py = [
+      '#!/usr/bin/env python3',
+      'import subprocess',
+      '',
+      'def run(command):',
+      '    process = subprocess.Popen(',
+      '        command,',
+      '        shell=True,',
+      '    )',
+    ].join('\n')
+    const fs = maliciousCode.run(ir('# T', { 'with_server.py': py }))
+    const f = fs.find((x) => x.message.includes('shell=True'))
+    expect(f).toBeDefined()
+    expect(f!.line).toBe(5) // the subprocess.Popen( line, not the shebang
+    expect(f!.excerpt).toContain('subprocess.Popen')
+  })
+  it('ignores a dangerous call that is commented out', () => {
+    const fs = maliciousCode.run(ir('# T', { 'a.py': '# os.system("rm -rf /")\nprint("hi")' }))
+    expect(fs).toHaveLength(0)
   })
 })
 

@@ -1,6 +1,43 @@
-import type { Category, CodeUnit, Confidence, Finding, Severity, SkillIR } from '../ir/types.js'
+import type { Category, CodeUnit, Confidence, Finding, Lang, Severity, SkillIR } from '../ir/types.js'
 import { fingerprint } from '../util/fingerprint.js'
 import { owaspFor } from './types.js'
+
+// Blank out comments while preserving line count and character offsets, so code
+// rules match executable code rather than path mentions or examples in comments
+// (which a reviewer can already see). String contents are left intact so a `#`
+// or `//` inside a literal is never mistaken for a comment, which would risk a
+// false negative, the worse failure for a scanner.
+export function stripComments(source: string, lang: Lang): string {
+  if (lang === 'unknown') return source
+  const out: string[] = []
+  let str = '' // active string delimiter, or '' when outside a string
+  let block = false // inside a /* */ block (javascript)
+  for (let i = 0; i < source.length; i++) {
+    const c = source[i]!
+    const two = source.slice(i, i + 2)
+    if (block) {
+      if (two === '*/') { out.push('  '); i++; block = false; continue }
+      out.push(c === '\n' ? '\n' : ' ')
+      continue
+    }
+    if (str) {
+      out.push(c)
+      if (c === '\\' && i + 1 < source.length) { out.push(source[i + 1]!); i++; continue }
+      if (c === str) str = ''
+      continue
+    }
+    if (c === '"' || c === "'" || (lang === 'javascript' && c === '`')) { str = c; out.push(c); continue }
+    if (lang === 'javascript' && two === '/*') { out.push('  '); i++; block = true; continue }
+    const isComment = lang === 'javascript' ? two === '//' : c === '#'
+    if (isComment) {
+      while (i < source.length && source[i] !== '\n') { out.push(' '); i++ }
+      i-- // leave the newline for the next iteration
+      continue
+    }
+    out.push(c)
+  }
+  return out.join('')
+}
 
 // Redact things that look like secret values so frisk never prints a credential
 // it found in the scanned skill.
@@ -46,15 +83,31 @@ export function anyMatch(source: string, patterns: RegExp[]): boolean {
 }
 
 // First 1-based line of `source` that matches any of the patterns, else 1.
-export function lineFor(source: string, patterns: RegExp[]): { line: number; text: string } {
+// `original` supplies the excerpt text when `source` has been comment-stripped,
+// so reported snippets show the real code, not blanked-out lines.
+export function lineFor(
+  source: string,
+  patterns: RegExp[],
+  original: string = source,
+): { line: number; text: string } {
   const lines = source.split('\n')
+  const origLines = original.split('\n')
+  const reOf = (re: RegExp) => new RegExp(re.source, re.flags.replace(/[gy]/g, ''))
   for (let i = 0; i < lines.length; i++) {
-    const text = lines[i] ?? ''
-    if (patterns.some((re) => new RegExp(re.source, re.flags.replace(/[gy]/g, '')).test(text))) {
-      return { line: i + 1, text }
+    if (patterns.some((re) => reOf(re).test(lines[i] ?? ''))) {
+      return { line: i + 1, text: origLines[i] ?? lines[i] ?? '' }
     }
   }
-  return { line: 1, text: lines[0] ?? '' }
+  // No single line matched (e.g. a regex that spans several lines). Locate the
+  // match in the whole source and report the line where it begins.
+  for (const re of patterns) {
+    const m = reOf(re).exec(source)
+    if (m) {
+      const line = source.slice(0, m.index).split('\n').length
+      return { line, text: origLines[line - 1] ?? '' }
+    }
+  }
+  return { line: 1, text: origLines[0] ?? '' }
 }
 
 export const SKILL_MD = 'SKILL.md'

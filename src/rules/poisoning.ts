@@ -1,6 +1,6 @@
 import type { Finding, SkillIR } from '../ir/types.js'
 import type { Rule } from './types.js'
-import { anyMatch, lineFor, makeFinding, markdownTextTargets } from './helpers.js'
+import { anyMatch, lineFor, makeFinding, markdownTextTargets, stripComments } from './helpers.js'
 
 // Persistent agent-state targets: writing here survives across sessions.
 const STATE_TARGETS: RegExp[] = [
@@ -35,10 +35,13 @@ export const rule: Rule = {
   run(ir: SkillIR): Finding[] {
     const findings: Finding[] = []
 
-    // Code that writes to persistent agent state.
+    // Code that writes to persistent agent state. Comments are stripped first so
+    // a path mentioned in a comment (e.g. docs describing what a cleanup script
+    // touches) does not read as a write to that path.
     for (const unit of ir.codeUnits) {
-      if (anyMatch(unit.source, WRITE_OPS) || (anyMatch(unit.source, STATE_TARGETS) && /(?:>>|>|writeFile|appendFile|open\s*\()/.test(unit.source))) {
-        const at = lineFor(unit.source, [...WRITE_OPS, ...STATE_TARGETS])
+      const scan = stripComments(unit.source, unit.lang)
+      if (anyMatch(scan, WRITE_OPS) || (anyMatch(scan, STATE_TARGETS) && /(?:>>|>|writeFile|appendFile|open\s*\()/.test(scan))) {
+        const at = lineFor(scan, [...WRITE_OPS, ...STATE_TARGETS], unit.source)
         findings.push(
           makeFinding({
             ruleId: id,

@@ -49,6 +49,33 @@ function lineOf(text: string, index: number): number {
   return line
 }
 
+// Character ranges covered by fenced code blocks (``` or ~~~). Content inside a
+// fence is shown to the reviewer as literal code, so an HTML comment there is
+// not "hidden" the way a comment in prose is.
+const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/
+function fencedRanges(raw: string): Array<[number, number]> {
+  const ranges: Array<[number, number]> = []
+  let open: { char: string; len: number; start: number } | null = null
+  let offset = 0
+  for (const line of raw.split('\n')) {
+    const lineStart = offset
+    const lineEnd = offset + line.length
+    if (!open) {
+      const m = FENCE_OPEN.exec(line)
+      if (m) open = { char: m[1]![0]!, len: m[1]!.length, start: lineStart }
+    } else {
+      const close = new RegExp(`^ {0,3}\\${open.char}{${open.len},}\\s*$`)
+      if (close.test(line)) {
+        ranges.push([open.start, lineEnd])
+        open = null
+      }
+    }
+    offset = lineEnd + 1 // +1 for the '\n' removed by split
+  }
+  if (open) ranges.push([open.start, raw.length])
+  return ranges
+}
+
 function splitFrontmatter(raw: string): { fm: Record<string, unknown>; body: string; bodyOffset: number } {
   // Frontmatter is a leading `---` ... `---` block.
   const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(raw)
@@ -82,8 +109,12 @@ export function parseMarkdown(raw: string): ParsedMarkdown {
 
   // Hidden spans are detected against the original raw text so line numbers are
   // accurate and so nothing is lost to normalization.
+  const fences = fencedRanges(raw)
+  const insideFence = (i: number) => fences.some(([s, e]) => i >= s && i < e)
   for (const m of raw.matchAll(HTML_COMMENT)) {
-    hiddenSpans.push({ kind: 'html-comment', text: (m[1] ?? '').trim(), line: lineOf(raw, m.index ?? 0) })
+    const idx = m.index ?? 0
+    if (insideFence(idx)) continue // a comment shown as code is not hidden
+    hiddenSpans.push({ kind: 'html-comment', text: (m[1] ?? '').trim(), line: lineOf(raw, idx) })
   }
   for (const m of raw.matchAll(HIDDEN_STYLE)) {
     hiddenSpans.push({ kind: 'tiny-or-white', text: (m[2] ?? '').trim(), line: lineOf(raw, m.index ?? 0) })

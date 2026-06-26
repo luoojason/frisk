@@ -1,6 +1,6 @@
 import type { Finding, Severity, SkillIR } from '../ir/types.js'
 import type { Rule } from './types.js'
-import { lineFor, makeFinding } from './helpers.js'
+import { lineFor, makeFinding, stripComments } from './helpers.js'
 
 interface Sig {
   re: RegExp
@@ -42,9 +42,10 @@ export const rule: Rule = {
   run(ir: SkillIR): Finding[] {
     const findings: Finding[] = []
     for (const unit of ir.codeUnits) {
+      const scan = stripComments(unit.source, unit.lang)
       for (const sig of SIGNATURES) {
-        if (!sig.re.test(unit.source)) continue
-        const at = lineFor(unit.source, [sig.re])
+        if (!sig.re.test(scan)) continue
+        const at = lineFor(scan, [sig.re], unit.source)
         findings.push(
           makeFinding({
             ruleId: id,
