@@ -11,12 +11,14 @@ const BEN_DIR = 'test/fixtures/benign'
 const EXPECTED: Record<string, Category> = {
   'exfil-creds': 'exfiltration',
   'cookie-stealer': 'exfiltration',
+  'dns-exfil': 'exfiltration',
   'hidden-injection': 'injection',
   'zerowidth-injection': 'injection',
   'memory-poison': 'poisoning',
   'worm-skill': 'poisoning',
   'reverse-shell': 'malicious-code',
   'obfuscated-payload': 'malicious-code',
+  'remote-exec': 'malicious-code',
   'undeclared-network': 'capability',
 }
 

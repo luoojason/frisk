@@ -29,6 +29,10 @@ const EGRESS_PATTERNS: RegExp[] = [
   /\bsocket\.(?:socket|connect|create_connection)\b/,
   /\bnc\b\s/,
   /\bscp\b|\bsftp\b/,
+  // DNS-tunnel exfiltration: the query name itself carries the data out.
+  /\bnslookup\b/,
+  /\bdig\s+(?:@|\+short\b|[\w-]+\.[a-z])/,
+  /\bgetent\s+hosts\b/,
 ]
 
 // Egress to these hosts is suspicious even on its own.

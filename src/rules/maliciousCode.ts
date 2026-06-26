@@ -12,6 +12,8 @@ const SIGNATURES: Sig[] = [
   // Download-and-execute remote code.
   { re: /\b(?:curl|wget)\b[^\n|]*\|\s*(?:bash|sh|zsh)\b/, severity: 'high', message: 'Pipes downloaded content directly into a shell (remote code execution).' },
   { re: /\b(?:curl|wget)\b[^\n]*\$\([^)]*\)[^\n]*\|\s*(?:bash|sh)\b/, severity: 'high', message: 'Downloads and executes remote code.' },
+  // exec/eval of a value fetched over the network (Python/JS remote code execution).
+  { re: /\b(?:exec|eval)\s*\(\s*(?:urllib(?:\.request)?\.urlopen|urlopen|requests\.(?:get|post)|httpx\.(?:get|post|request))\b/, severity: 'high', message: 'Executes code fetched from the network (remote code execution).' },
   // Reverse shells.
   { re: /\/dev\/tcp\/[0-9a-zA-Z.]/, severity: 'high', message: 'Opens a raw TCP socket to a remote host (reverse shell pattern).' },
   { re: /\bnc\b[^\n]*\s-e\b/, severity: 'high', message: 'Uses netcat with command execution (reverse shell).' },
