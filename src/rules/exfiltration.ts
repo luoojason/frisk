@@ -33,6 +33,9 @@ const EGRESS_PATTERNS: RegExp[] = [
   /\bnslookup\b/,
   /\bdig\s+(?:@|\+short\b|[\w-]+\.[a-z])/,
   /\bgetent\s+hosts\b/,
+  // Email as an exfiltration channel.
+  /\b(?:sendmail|mailx)\b/,
+  /\bmail\s+-[a-z]/,
 ]
 
 // Egress to these hosts is suspicious even on its own.

@@ -19,6 +19,8 @@ const EXPECTED: Record<string, Category> = {
   'reverse-shell': 'malicious-code',
   'obfuscated-payload': 'malicious-code',
   'remote-exec': 'malicious-code',
+  'download-exec': 'malicious-code',
+  'email-exfil': 'exfiltration',
   'undeclared-network': 'capability',
 }
 
