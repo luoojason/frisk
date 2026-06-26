@@ -1,5 +1,8 @@
 # frisk
 
+[![CI](https://github.com/luoojason/frisk/actions/workflows/ci.yml/badge.svg)](https://github.com/luoojason/frisk/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 **You wouldn't run a stranger's `.exe`. You just installed twelve of their `SKILL.md` files.**
 
 frisk scans an AI-agent skill for prompt injection, data exfiltration, and memory poisoning before it touches your machine. One command, no install, no API key.
