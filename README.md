@@ -70,6 +70,16 @@ Rule hardening in frisk/dig:
 - **malicious-code `eval`/`exec` pattern** extended to catch `exec(bytes.fromhex("..."))` in Python; hex-encoding payloads is now detected alongside base64 and `fromCharCode` obfuscation
 - **Pattern exports**: `SECRET_PATTERNS`, `EGRESS_PATTERNS`, `SUSPICIOUS_HOSTS` are now exported from the exfiltration rule so cross-unit analysis reuses them without duplication
 
+### Detection rules added in frisk/dig (defensive expansion)
+
+| Rule ID | Category | Severity | Signal |
+|---------|----------|----------|--------|
+| `install-hook` | malicious-code | high | `pip install` from a non-PyPI index URL (`--index-url`/`--extra-index-url` pointing to a non-`pypi.org` host), pip/npm install from a git URL or URL tarball, or SKILL.md prose instructing the same (bypasses registry vetting) |
+| `credential-harvest` | exfiltration | high | SKILL.md instructs the agent to ask the user for seed phrases, recovery mnemonics, 2FA codes, or crypto private keys (tier-1: always-dangerous); also fires when a credential-elicitation instruction is combined with a transmission directive (tier-2: combined social-engineering pattern) |
+| `sandbox-escape` | injection | high | SKILL.md instructs the agent to auto-approve all tool calls, bypass/skip the permission/confirmation prompt, disable the agent sandbox, or proceed without user confirmation (removes user ability to review agentic actions) |
+| `silent-telemetry` | exfiltration | medium | SKILL.md or code that collects user inputs/messages and sends them to an analytics/telemetry endpoint without evident consent; code-level: URL containing `analytics`/`telemetry`/`tracking`/`collect` alongside an egress call |
+| `time-bomb` | malicious-code | high/medium/low | Hard-coded future timestamp or date comparison (JS `Date.now() > epoch`, Python `datetime.now() > datetime(...)`, Bash `$(date +%s) -gt epoch`) gating a payload; severity scales: HIGH when paired with RCE or known exfil host, MEDIUM with any egress, LOW when isolated |
+
 ### Precision tuning (frisk/dig: real-skill audit)
 
 A capstone audit against 45 real installed skills revealed that the exfiltration rule was firing **HIGH** on legitimate Git-host API clients (e.g. a Bitbucket/Gitea provider script that passes `$BITBUCKET_TOKEN` as an `Authorization: Bearer` header to `api.bitbucket.org`). This is standard OAuth usage, not exfiltration.
