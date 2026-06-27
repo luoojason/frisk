@@ -64,11 +64,26 @@ Bug fixes in v0.1.1:
 
 | Rule ID | Category | Signal | Severity |
 |---------|----------|--------|----------|
-| EXF-CORR | exfiltration | Secret read and network egress in **separate** scripts (split-file exfiltration); high when egress targets a known exfil host, medium for a literal external URL, low for generic egress | high / medium / low |
+| EXF-CORR | exfiltration | Secret read and network egress in **separate** scripts (split-file exfiltration); high when egress targets a known exfil host, medium for a literal external URL alongside a credential-file read, low for generic egress or env-token cross-unit | high / medium / low |
 
 Rule hardening in frisk/dig:
 - **malicious-code `eval`/`exec` pattern** extended to catch `exec(bytes.fromhex("..."))` in Python; hex-encoding payloads is now detected alongside base64 and `fromCharCode` obfuscation
 - **Pattern exports**: `SECRET_PATTERNS`, `EGRESS_PATTERNS`, `SUSPICIOUS_HOSTS` are now exported from the exfiltration rule so cross-unit analysis reuses them without duplication
+
+### Precision tuning (frisk/dig: real-skill audit)
+
+A capstone audit against 45 real installed skills revealed that the exfiltration rule was firing **HIGH** on legitimate Git-host API clients (e.g. a Bitbucket/Gitea provider script that passes `$BITBUCKET_TOKEN` as an `Authorization: Bearer` header to `api.bitbucket.org`). This is standard OAuth usage, not exfiltration.
+
+**Secret-tier split introduced:**
+
+| Tier | Patterns | Rule behaviour |
+|------|----------|----------------|
+| Credential file / literal token (tier 1) | `~/.aws`, `~/.ssh/id_rsa`, `.env`, `.netrc`, `AKIA…`, `sk-…`, keychain, browser cookies, IMDS URLs | **HIGH** when paired with any egress; **MEDIUM** alone |
+| Env-var name (tier 2) | `$GITHUB_TOKEN`, `$BITBUCKET_TOKEN`, any `*_TOKEN/*_SECRET/*_API_KEY/…` | **HIGH** only when paired with a *suspicious* exfil host; **MEDIUM** for ordinary egress (worth reviewing but not a block) |
+
+EXF-CORR (cross-unit) also tightened: a MEDIUM cross-unit finding now requires a tier-1 secret; env-var cross-unit with a literal external URL downgrades to LOW.
+
+**Audit result:** `~/.claude/skills` corpus (45 skills): 0 HIGH findings, 1 MEDIUM (webapp-testing, `shell=True` in a subprocess call - a genuine concern). Plugin skills: 0 HIGH findings (down from 2).
 
 ## Usage
 

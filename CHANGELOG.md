@@ -1,5 +1,95 @@
 # Changelog
 
+## Unreleased (frisk/dig branch — precision audit)
+
+### Precision tuning: secret-tier split (false-positive reduction)
+
+A capstone audit ran frisk against 45 real installed skills from `~/.claude/skills`
+and ~50 plugin skills.  Before this work, `omc-project-session-manager`'s Bitbucket
+and Gitea provider scripts (`lib/providers/bitbucket.sh`, `lib/providers/gitea.sh`)
+received **HIGH** exfiltration findings because they pass `$BITBUCKET_TOKEN` /
+`$GITEA_TOKEN` as `Authorization: Bearer` headers to `api.bitbucket.org` /
+`api.gitea.com` — standard OAuth API client code, not exfiltration.
+
+**Root cause:** `SECRET_PATTERNS` treated env-var names like `_TOKEN`, `_API_KEY`,
+`_PASSWORD` with the same severity weight as literal credential-file reads
+(`~/.aws/credentials`, `~/.ssh/id_rsa`).  Any env-var token alongside any `curl`
+call → HIGH — a 100% false-positive for normal API client scripts.
+
+**Fix: two-tier secret classification**
+
+`src/rules/exfiltration.ts` now exports three symbols:
+
+| Symbol | Patterns | Semantics |
+|--------|----------|-----------|
+| `SECRET_CREDENTIAL_PATTERNS` | `~/.aws`, `~/.ssh`, `id_rsa`, `.env`, `.netrc`, `AKIA…`, `sk-…`, keychain, browser cookies, cloud IMDS URLs | Tier 1 — reading actual credential material |
+| `SECRET_ENV_PATTERNS` | `*_TOKEN`, `*_SECRET`, `*_API_KEY`, `*_APIKEY`, `*_PASSWORD`, `*_PRIVATE_KEY`, `*_ACCESS_KEY` | Tier 2 — referencing a credential-like env var |
+| `SECRET_PATTERNS` | union of both | Backward-compat export |
+
+**Per-unit exfiltration rule — new severity contract:**
+
+| Signal combination | Severity | Rationale |
+|--------------------|----------|-----------|
+| Tier-1 secret + any egress (or suspicious host) | **HIGH** | Reading credential file and sending it anywhere is always high risk |
+| Any tier + suspicious exfil host (webhook.site, ngrok, etc.) | **HIGH** | Even an env token sent to a known-bad host is exfiltration |
+| Tier-2 env-var + ordinary egress (non-suspicious host) | **MEDIUM** | Common API auth pattern; worth reviewing but not blocking |
+| Tier-1 secret alone (no egress) | **MEDIUM** | Unchanged |
+| Tier-2 env-var alone (no egress) | **LOW** | Informational |
+
+**EXF-CORR cross-unit rule — MEDIUM tier tightened:**
+
+A MEDIUM cross-unit finding now requires a **tier-1 secret** in the secret-bearing
+unit.  A skill that exports `$SERVICE_API_KEY` in one file and calls
+`curl https://api.myservice.com` in another was firing MEDIUM; it now fires LOW,
+correctly reflecting that multi-file API clients are a normal design pattern.
+
+**Audit results:**
+
+| Corpus | Before | After |
+|--------|--------|-------|
+| `~/.claude/skills` (45 skills) | 0 HIGH, 1 MEDIUM | 0 HIGH, 1 MEDIUM |
+| Plugin skills (~50 OMC skills) | 2 HIGH, 1 MEDIUM | 0 HIGH, 3 MEDIUM |
+| Malicious recall | 28/28 | 28/28 |
+
+The 2 eliminated HIGHs were the `bitbucket.sh` / `gitea.sh` FPs described above.
+The 2 remaining MEDIUMs in OMC skills are the same scripts, now correctly at MEDIUM.
+The 1 remaining MEDIUM in `~/.claude/skills` (webapp-testing `shell=True`) is a
+**genuine concern** — `subprocess.Popen(cmd, shell=True)` is a real risk pattern
+in the webapp-testing script, though benign in context.
+
+**Malicious recall preserved:** All 28 malicious fixtures still fire.  None of the
+malicious exfiltration fixtures use tier-2 env-var secrets — they all read actual
+credential files (`~/.aws/credentials`, `~/.ssh/id_rsa`, cookies, IMDS).
+
+### New benign-real fixture corpus + precision regression gate
+
+`test/fixtures/benign-real/` — 5 sanitized excerpts from real installed skills:
+
+| Fixture | Pattern | Expected max severity |
+|---------|---------|----------------------|
+| `git-provider-auth` | `$GITHOST_TOKEN` + curl to official API host | MEDIUM |
+| `cross-unit-api-client` | Multi-file: env key in one script, API call in another | MEDIUM (cross-unit) |
+| `env-token-docs` | SKILL.md prose mentioning token env vars, no exec code | GREEN |
+| `health-checker` | Env-var URL + curl health check, no credential | MEDIUM |
+| `mcp-integration` | SKILL.md with `$API_KEY` code snippets + external URL | MEDIUM |
+
+`test/precision.test.ts` — hermetic precision gate asserting ZERO HIGH findings
+across the entire `benign-real` corpus.  No dependency on `~/.claude`.
+
+### New test cases
+
+5 new unit tests added to `test/rules.test.ts`:
+- `exfiltration` — `does NOT flag env token + legitimate API egress as high (FP fix)`
+- `exfiltration` — `flags env token + suspicious exfil host as HIGH (not a benign API call)`
+- `exfiltration` — `still flags credential file read + legitimate API egress as HIGH`
+- `EXF-CORR` — `fires LOW (not MEDIUM) for cross-unit env-token + literal external URL (precision tightening)`
+- `EXF-CORR` — `still fires MEDIUM for cross-unit file-credential + literal external URL`
+
+### Test counts
+
+Before this work: 155 tests. After: 165 tests (+10). Typecheck: clean.
+Malicious recall: 28/28. Benign precision gate: 0 HIGH FPs on 10 corpus benign + 5 benign-real fixtures.
+
 ## Unreleased (frisk/dig branch — continued)
 
 ### New detection rule: EXF-CORR — Cross-unit taint correlation
