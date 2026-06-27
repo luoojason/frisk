@@ -25,7 +25,7 @@
 import type { Finding, SkillIR } from '../ir/types.js'
 import type { Rule } from './types.js'
 import { lineFor, makeFinding, shellMatchesAllGuarded, stripComments } from './helpers.js'
-import { SECRET_PATTERNS, EGRESS_PATTERNS, SUSPICIOUS_HOSTS } from './exfiltration.js'
+import { SECRET_CREDENTIAL_PATTERNS, SECRET_ENV_PATTERNS, SECRET_PATTERNS, EGRESS_PATTERNS, SUSPICIOUS_HOSTS } from './exfiltration.js'
 
 // Matches any literal https?:// URL (not a bare variable reference). Used to
 // distinguish "generic egress" (curl $HOST) from "egress to a named host" (curl
@@ -47,6 +47,8 @@ export const rule: Rule = {
     type UnitClass = {
       file: string
       hasSecret: boolean
+      hasFileSecret: boolean
+      hasEnvSecret: boolean
       hasEgress: boolean
       hasSuspHost: boolean
       hasExternalUrl: boolean
@@ -58,9 +60,13 @@ export const rule: Rule = {
       const fires = (re: RegExp) =>
         re.test(stripped) && (unit.lang !== 'bash' || !shellMatchesAllGuarded(stripped, re))
 
+      const hasFileSecret = SECRET_CREDENTIAL_PATTERNS.some(fires)
+      const hasEnvSecret = SECRET_ENV_PATTERNS.some(fires)
       classified.push({
         file: unit.file,
-        hasSecret: SECRET_PATTERNS.some(fires),
+        hasSecret: hasFileSecret || hasEnvSecret,
+        hasFileSecret,
+        hasEnvSecret,
         hasEgress: EGRESS_PATTERNS.some(fires),
         hasSuspHost: fires(SUSPICIOUS_HOSTS),
         hasExternalUrl: EXTERNAL_URL.test(stripped),
@@ -88,9 +94,15 @@ export const rule: Rule = {
     // egress-bearing units.
     const anySuspHost = classified.some((c) => c.hasSuspHost)
     const anyExternalUrl = classified.some((c) => c.hasExternalUrl)
+    // Only escalate to MEDIUM when the secret-bearing unit reads an actual
+    // credential file (tier-1 secret).  A skill that merely references an env-var
+    // name (_TOKEN, _API_KEY) alongside a literal API URL is a common legitimate
+    // pattern (multi-file API client); keeping it at LOW avoids noise on
+    // real-world benign skills.
+    const anyFileSecret = classified.some((c) => c.hasFileSecret)
 
-    const severity = anySuspHost ? 'high' : anyExternalUrl ? 'medium' : 'low'
-    const confidence = anySuspHost ? 'high' : anyExternalUrl ? 'medium' : 'low'
+    const severity = anySuspHost ? 'high' : (anyExternalUrl && anyFileSecret) ? 'medium' : 'low'
+    const confidence = anySuspHost ? 'high' : (anyExternalUrl && anyFileSecret) ? 'medium' : 'low'
 
     // Anchor the finding to the first unit that holds a secret.
     const secretUnit = ir.codeUnits.find((u) => secretFiles.has(u.file))!

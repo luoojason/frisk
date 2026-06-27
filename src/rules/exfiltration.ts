@@ -2,13 +2,16 @@ import type { Finding, SkillIR } from '../ir/types.js'
 import type { Rule } from './types.js'
 import { lineFor, makeFinding, shellMatchesAllGuarded, stripComments } from './helpers.js'
 
-export const SECRET_PATTERNS: RegExp[] = [
+// Tier 1: High-confidence secret signals.
+// These patterns indicate that the code is reading an actual credential file,
+// accessing cloud-instance metadata, or contains a literal token value embedded
+// in the source.  A match here alongside any network egress is high severity.
+export const SECRET_CREDENTIAL_PATTERNS: RegExp[] = [
   /~\/\.aws\b/,
   /~\/\.ssh\b/,
   /\bid_rsa\b/,
   /(^|[^\w.])\.env\b/,
   /\b\.netrc\b/,
-  /\b[A-Z][A-Z0-9]*(?:_TOKEN|_SECRET|_API_?KEY|_APIKEY|_PASSWORD|_PRIVATE_KEY|_ACCESS_KEY)\b/,
   /\bAKIA[0-9A-Z]{12,}\b/,
   /\bsk-[A-Za-z0-9_-]{16,}\b/,
   /security\s+find-generic-password|\bkeychain\b/i,
@@ -18,6 +21,21 @@ export const SECRET_PATTERNS: RegExp[] = [
   /\b169\.254\.169\.254\b/,
   /\bmetadata\.google\.internal\b/,
   /\bmetadata\.azure\.com\b/,
+]
+
+// Tier 2: Env-var names that look credential-like.
+// Matching GITHUB_TOKEN or BITBUCKET_TOKEN is common in legitimate API client
+// scripts that pass the token as an Authorization header to the service that
+// issued it.  Treated as a weaker signal: alone it raises a MEDIUM; it only
+// escalates to HIGH when paired with a suspicious exfil host.
+export const SECRET_ENV_PATTERNS: RegExp[] = [
+  /\b[A-Z][A-Z0-9]*(?:_TOKEN|_SECRET|_API_?KEY|_APIKEY|_PASSWORD|_PRIVATE_KEY|_ACCESS_KEY)\b/,
+]
+
+// Union: kept for backward-compat with other rules that import this symbol.
+export const SECRET_PATTERNS: RegExp[] = [
+  ...SECRET_CREDENTIAL_PATTERNS,
+  ...SECRET_ENV_PATTERNS,
 ]
 
 export const EGRESS_PATTERNS: RegExp[] = [
@@ -77,13 +95,19 @@ export const rule: Rule = {
       // inside a [[ ]] / case operand.
       const fires = (re: RegExp) =>
         re.test(stripped) && (unit.lang !== 'bash' || !shellMatchesAllGuarded(stripped, re))
-      const hasSecret = SECRET_PATTERNS.some(fires)
+
+      // Tier 1: literal credential file reads and embedded raw tokens.
+      const hasFileSecret = SECRET_CREDENTIAL_PATTERNS.some(fires)
+      // Tier 2: env-var names that look credential-like ($GITHUB_TOKEN, etc.).
+      const hasEnvSecret = SECRET_ENV_PATTERNS.some(fires)
       const hasEgress = EGRESS_PATTERNS.some(fires)
       const hasSuspHost = fires(SUSPICIOUS_HOSTS)
       const hasBase64Egress = fires(BASE64_EGRESS)
 
-      if (hasSecret && (hasEgress || hasSuspHost)) {
-        const at = lineFor(stripped, SECRET_PATTERNS, unit.source)
+      // HIGH — tier-1 credential read (file / IMDS / literal token) + any egress,
+      // OR any credential + egress to a known-suspicious exfil host.
+      if (hasFileSecret && (hasEgress || hasSuspHost)) {
+        const at = lineFor(stripped, SECRET_CREDENTIAL_PATTERNS, unit.source)
         findings.push(
           makeFinding({
             ruleId: id,
@@ -95,6 +119,25 @@ export const rule: Rule = {
             excerpt: at.text,
             message: 'Reads credentials/secrets and sends data over the network in the same script (data exfiltration).',
             remediation: 'A skill should never read cloud credentials, SSH keys, or .env files and transmit them. Remove this.',
+          }),
+        )
+        continue
+      }
+      if (hasEnvSecret && hasSuspHost) {
+        // An env-var credential token sent to a known-suspicious exfil host is
+        // equally as dangerous as a file-credential read: escalate to HIGH.
+        const at = lineFor(stripped, SECRET_ENV_PATTERNS, unit.source)
+        findings.push(
+          makeFinding({
+            ruleId: id,
+            category: 'exfiltration',
+            severity: 'high',
+            confidence: 'high',
+            file: unit.file,
+            line: at.line,
+            excerpt: at.text,
+            message: 'Sends a credential token to a host commonly used for data exfiltration.',
+            remediation: 'A skill should never transmit auth tokens to paste sites, webhooks, or tunnel endpoints. Remove this.',
           }),
         )
         continue
@@ -119,8 +162,29 @@ export const rule: Rule = {
         )
         continue
       }
-      if (hasSecret) {
-        const at = lineFor(stripped, SECRET_PATTERNS, unit.source)
+      if (hasEnvSecret && hasEgress) {
+        // An env-var credential token alongside a network call is worth reviewing:
+        // it may be legitimate API authentication, but the combination warrants
+        // inspection.  Only MEDIUM (not HIGH) because the destination is not a
+        // known-suspicious host and no credential file is being read.
+        const at = lineFor(stripped, SECRET_ENV_PATTERNS, unit.source)
+        findings.push(
+          makeFinding({
+            ruleId: id,
+            category: 'exfiltration',
+            severity: 'medium',
+            confidence: 'medium',
+            file: unit.file,
+            line: at.line,
+            excerpt: at.text,
+            message: 'Script uses a credential-like env var and makes an outbound network request — verify the destination is legitimate.',
+            remediation: 'Confirm that the token is sent only to the service that issued it, not forwarded to a third party.',
+          }),
+        )
+        continue
+      }
+      if (hasFileSecret) {
+        const at = lineFor(stripped, SECRET_CREDENTIAL_PATTERNS, unit.source)
         findings.push(
           makeFinding({
             ruleId: id,
@@ -132,6 +196,24 @@ export const rule: Rule = {
             excerpt: at.text,
             message: 'Script reads credentials or secret material.',
             remediation: 'Confirm the skill genuinely needs these secrets. Prefer scoped, explicitly-passed inputs over reading credential files.',
+          }),
+        )
+        continue
+      }
+      if (hasEnvSecret) {
+        // Env-var credential name with no egress: low-confidence, informational only.
+        const at = lineFor(stripped, SECRET_ENV_PATTERNS, unit.source)
+        findings.push(
+          makeFinding({
+            ruleId: id,
+            category: 'exfiltration',
+            severity: 'low',
+            confidence: 'low',
+            file: unit.file,
+            line: at.line,
+            excerpt: at.text,
+            message: 'Script references a credential-like environment variable.',
+            remediation: 'Confirm this env var is expected for this skill and is not forwarded to unexpected destinations.',
           }),
         )
         continue
