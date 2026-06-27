@@ -32,6 +32,11 @@ const EXPECTED: Record<string, Category> = {
   'aws-metadata': 'exfiltration',
   'gcp-metadata': 'exfiltration',
   'undeclared-network': 'capability',
+  // New fixtures added with frisk/dig
+  'priority-override': 'injection',
+  'safety-disable': 'injection',
+  'chmod-setuid': 'malicious-code',
+  'base64-exfil': 'exfiltration',
 }
 
 describe('corpus gate', () => {

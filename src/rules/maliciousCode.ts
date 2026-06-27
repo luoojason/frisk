@@ -47,6 +47,17 @@ const SIGNATURES: Sig[] = [
   { re: /\bchild_process\.(?:exec|execSync)\s*\(/, severity: 'medium', message: 'Executes a shell command via child_process.exec.' },
   { re: /\beval\s*\(/, severity: 'medium', message: 'Uses eval().' },
   { re: /\bFunction\s*\(\s*['"]/, severity: 'medium', message: 'Constructs code from a string via Function().' },
+  // Privilege-escalation via setuid bit: setting the setuid/setgid bit on a
+  // system binary allows it to run as root regardless of who calls it. There is
+  // no legitimate skill use-case for this pattern.
+  { re: /\bchmod\s+[246][0-9]{3}\s+\/(?:bin|usr\/bin|usr\/local\/bin|sbin|usr\/sbin|etc|tmp)\//i, severity: 'high', message: 'Sets the setuid/setgid bit on a system path (privilege escalation).' },
+  { re: /\bchmod\s+[ugo]*\+[sg]\s+\/(?:bin|usr\/bin|usr\/local\/bin|sbin|usr\/sbin|etc|tmp)\//i, severity: 'high', message: 'Sets the setuid/setgid bit on a system path (privilege escalation).' },
+  // Making the SSH directory or authorized_keys world-writable lets any local
+  // user inject keys and gain access.
+  { re: /\bchmod\s+0?777\s+~\/\.ssh\b/i, severity: 'high', message: 'Makes the SSH directory world-writable (backdoor risk).' },
+  // Privilege escalation via sudo su or su root.
+  { re: /\bsudo\s+(?:su\s*-?|bash\s*$|sh\s*$|-i\s*$)/m, severity: 'high', message: 'Drops into an interactive root shell (privilege escalation).' },
+  { re: /\bsu\s+-\s+root\b/, severity: 'high', message: 'Switches to the root account (privilege escalation).' },
 ]
 
 const id = 'malicious-code'

@@ -14,6 +14,23 @@ const OVERRIDE_PATTERNS: RegExp[] = [
   /\byou\s+are\s+now\s+(?:in\s+)?(?:developer|jailbreak|dan|unrestricted)\b/i,
 ]
 
+// High-confidence patterns: unambiguously adversarial, never appear in legitimate skills.
+
+// INJ-006: a skill asserting it supersedes the system prompt is announcing
+// adversarial intent; no legitimate skill needs to claim override priority.
+const PRIORITY_OVERRIDE_PATTERNS: RegExp[] = [
+  /(?:this\s+instruction|this\s+directive|the\s+following)\s+(?:overrides?|supersedes?|takes?\s+precedence\s+over)\s+(?:all\s+)?(?:previous|other|system|prior|the\s+system\s+prompt)/i,
+  /treat\s+(?:this|the\s+following)\s+as\s+(?:the\s+)?(?:highest|top)\s+priority\s+(?:over|above|ignoring)/i,
+  /(?:override|supersede|take\s+precedence\s+over)\s+(?:all\s+)?(?:anthropic|openai|system|safety|operator)\s+(?:instructions?|guidelines?|rules?|policies?)/i,
+]
+
+// INJ-safety: disabling safety or content filters is definitionally adversarial.
+const SAFETY_DISABLE_PATTERNS: RegExp[] = [
+  /(?:disable|bypass|turn\s+off|circumvent|deactivate)\s+(?:all\s+)?(?:safety|content|moderation|guardrail|content-?filter)\s+(?:filter|guard|check|mechanism|mode|system)/i,
+  /set\s+safe(?:ty)?(?:_mode)?\s*[=:]\s*(?:false|0|off|disabled|none)/i,
+  /(?:jailbreak|unlock)\s+(?:all\s+)?(?:safety|content|guardrail|restriction)/i,
+]
+
 // Instruction-like content used to decide whether a HIDDEN span is dangerous.
 const HIDDEN_INSTRUCTION = /\b(ignore|disregard|override|always|never|do not|don't|you must|instead|run|execute|curl|wget|base64|exfiltrat|send (?:the|your|all|it)|delete|rm\s+-rf|sudo|export\s|POST\b|fetch\s*\(|os\.system|eval\b)\b/i
 
@@ -43,6 +60,46 @@ export const rule: Rule = {
             excerpt: m[0],
             message: 'SKILL.md contains text that tries to override the agent\'s own instructions.',
             remediation: 'A legitimate skill describes a task; it does not tell the agent to ignore or override its instructions.',
+          }),
+        )
+      }
+    }
+
+    // High-confidence patterns: a skill asserting it supersedes the system prompt
+    // or that disables safety filters has no legitimate use. Flag as high/high.
+    for (const re of PRIORITY_OVERRIDE_PATTERNS) {
+      const m = re.exec(ir.markdown.visibleText)
+      if (m) {
+        findings.push(
+          makeFinding({
+            ruleId: id,
+            category: 'injection',
+            severity: 'high',
+            confidence: 'high',
+            file: 'SKILL.md',
+            line: firstLine(ir.markdown.visibleText, re),
+            excerpt: m[0],
+            message: 'SKILL.md claims this instruction overrides the system prompt or takes precedence over all other instructions (INJ-006: competing-priority override).',
+            remediation: 'No legitimate skill needs to claim override priority over the system prompt. Remove this.',
+          }),
+        )
+      }
+    }
+
+    for (const re of SAFETY_DISABLE_PATTERNS) {
+      const m = re.exec(ir.markdown.visibleText)
+      if (m) {
+        findings.push(
+          makeFinding({
+            ruleId: id,
+            category: 'injection',
+            severity: 'high',
+            confidence: 'high',
+            file: 'SKILL.md',
+            line: firstLine(ir.markdown.visibleText, re),
+            excerpt: m[0],
+            message: 'SKILL.md instructs the agent to disable safety filters or content guardrails.',
+            remediation: 'A skill must never disable safety mechanisms. Remove this directive.',
           }),
         )
       }
