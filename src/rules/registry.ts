@@ -6,10 +6,15 @@ import { rule as poisoning } from './poisoning.js'
 import { rule as maliciousCode } from './maliciousCode.js'
 import { rule as capability } from './capability.js'
 import { rule as crossUnitTaint } from './crossUnitTaint.js'
+import { rule as installHook } from './installHook.js'
+import { rule as credentialHarvest } from './credentialHarvest.js'
+import { rule as sandboxEscape } from './sandboxEscape.js'
+import { rule as silentTelemetry } from './silentTelemetry.js'
+import { rule as timeBomb } from './timeBomb.js'
 import { llmJudge } from './llmJudge.js'
 
 export function allRules(): Rule[] {
-  return [injection, exfiltration, poisoning, maliciousCode, capability, crossUnitTaint]
+  return [injection, exfiltration, poisoning, maliciousCode, capability, crossUnitTaint, installHook, credentialHarvest, sandboxEscape, silentTelemetry, timeBomb]
 }
 
 export interface RunRulesOptions {

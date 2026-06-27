@@ -39,6 +39,12 @@ const EXPECTED: Record<string, Category> = {
   'base64-exfil': 'exfiltration',
   // Cross-unit taint correlation (EXF-CORR): secret in one file, egress in another
   'split-exfil': 'exfiltration',
+  // New rules added in frisk/dig defensive expansion
+  'install-hook': 'malicious-code',
+  'credential-harvest': 'exfiltration',
+  'sandbox-escape': 'injection',
+  'silent-telemetry': 'exfiltration',
+  'time-bomb': 'malicious-code',
 }
 
 describe('corpus gate', () => {
