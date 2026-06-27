@@ -39,54 +39,49 @@ function extractJsonArray(text: string): unknown[] {
 export async function llmJudge(ir: SkillIR, opts: LlmOptions): Promise<Finding[]> {
   const fetchImpl = opts.fetchImpl ?? fetch
   const model = opts.model ?? 'claude-haiku-4-5'
-  try {
-    const res = await fetchImpl('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': opts.apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 1024,
-        system: SYSTEM,
-        messages: [{ role: 'user', content: buildUserContent(ir) }],
-      }),
-    })
-    if (!res.ok) {
-      console.error(`frisk: llm judge skipped (HTTP ${res.status})`)
-      return []
-    }
-    const data = (await res.json()) as { content?: { text?: string }[] }
-    const text = data.content?.map((b) => b.text ?? '').join('') ?? ''
-    const raw = extractJsonArray(text)
-    const findings: Finding[] = []
-    for (const item of raw) {
-      if (!item || typeof item !== 'object') continue
-      const o = item as Record<string, unknown>
-      const category = CATEGORIES.includes(o['category'] as Category) ? (o['category'] as Category) : null
-      if (!category) continue
-      const severity = SEVERITIES.includes(o['severity'] as Severity) ? (o['severity'] as Severity) : 'medium'
-      const confidence = CONFIDENCES.includes(o['confidence'] as Confidence) ? (o['confidence'] as Confidence) : 'low'
-      findings.push(
-        makeFinding({
-          ruleId: 'llm-judge',
-          category,
-          severity,
-          confidence,
-          file: typeof o['file'] === 'string' ? (o['file'] as string) : 'SKILL.md',
-          line: Number.isFinite(o['line']) ? Number(o['line']) : 1,
-          excerpt: typeof o['excerpt'] === 'string' ? (o['excerpt'] as string) : '',
-          message: typeof o['message'] === 'string' ? (o['message'] as string) : 'LLM-flagged risk.',
-          remediation: typeof o['remediation'] === 'string' ? (o['remediation'] as string) : 'Review this finding.',
-          source: 'llm',
-        }),
-      )
-    }
-    return findings
-  } catch (err) {
-    console.error(`frisk: llm judge skipped (${(err as Error).message})`)
-    return []
+  const res = await fetchImpl('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-api-key': opts.apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 4096,
+      system: SYSTEM,
+      messages: [{ role: 'user', content: buildUserContent(ir) }],
+    }),
+  })
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => '')
+    throw new Error(`frisk: llm judge HTTP ${res.status}${errBody ? ` — ${errBody.slice(0, 200)}` : ''}`)
   }
+  const data = (await res.json()) as { content?: { text?: string }[] }
+  const text = data.content?.map((b) => b.text ?? '').join('') ?? ''
+  const raw = extractJsonArray(text)
+  const findings: Finding[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const o = item as Record<string, unknown>
+    const category = CATEGORIES.includes(o['category'] as Category) ? (o['category'] as Category) : null
+    if (!category) continue
+    const severity = SEVERITIES.includes(o['severity'] as Severity) ? (o['severity'] as Severity) : 'medium'
+    const confidence = CONFIDENCES.includes(o['confidence'] as Confidence) ? (o['confidence'] as Confidence) : 'low'
+    findings.push(
+      makeFinding({
+        ruleId: 'llm-judge',
+        category,
+        severity,
+        confidence,
+        file: typeof o['file'] === 'string' ? (o['file'] as string) : 'SKILL.md',
+        line: Number.isFinite(o['line']) ? Number(o['line']) : 1,
+        excerpt: typeof o['excerpt'] === 'string' ? (o['excerpt'] as string) : '',
+        message: typeof o['message'] === 'string' ? (o['message'] as string) : 'LLM-flagged risk.',
+        remediation: typeof o['remediation'] === 'string' ? (o['remediation'] as string) : 'Review this finding.',
+        source: 'llm',
+      }),
+    )
+  }
+  return findings
 }
