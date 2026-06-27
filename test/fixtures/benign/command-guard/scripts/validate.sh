@@ -29,4 +29,10 @@ if [[ "$file_path" == *.env ]] || [[ "$file_path" == *secret* ]] || [[ "$file_pa
   exit 1
 fi
 
+# Deny writes that target agent-memory files. Named to match, never written.
+if [[ "$file_path" == *"CLAUDE.md"* ]] || [[ "$file_path" == *".claude/"* ]] || [[ "$file_path" == *"AGENTS.md"* ]]; then
+  echo "blocked: agent memory" >&2
+  exit 1
+fi
+
 exit 0

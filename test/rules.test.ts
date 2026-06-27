@@ -106,6 +106,24 @@ describe('poisoning rule', () => {
     expect(f).toBeDefined()
     expect(f!.line).toBeGreaterThan(1)
   })
+  it('does not flag a state path named only inside a deny-guard', () => {
+    // A hook that blocks writes to CLAUDE.md names the path to compare against;
+    // the `>&2` on an unrelated echo must not turn it into a write finding.
+    const sh = [
+      '#!/bin/bash',
+      'path="$1"',
+      'if [[ "$path" == *"CLAUDE.md"* ]] || [[ "$path" == *".claude/"* ]]; then',
+      '  echo "blocked" >&2',
+      '  exit 1',
+      'fi',
+    ].join('\n')
+    const fs = poisoning.run(ir('# T', { 'guard.sh': sh }))
+    expect(fs).toHaveLength(0)
+  })
+  it('still flags a real write to CLAUDE.md at a command position', () => {
+    const fs = poisoning.run(ir('# T', { 'w.sh': '#!/bin/bash\necho "x" >> ~/.claude/CLAUDE.md' }))
+    expect(fs.some((f) => f.severity === 'high')).toBe(true)
+  })
   it('does not flag a state path mentioned only in a code comment', () => {
     // A cleanup script that documents which dirs it touches and writes its own
     // lockfile must not read as writing to CLAUDE.md / agent memory.

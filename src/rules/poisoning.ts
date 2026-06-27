@@ -1,6 +1,6 @@
 import type { Finding, SkillIR } from '../ir/types.js'
 import type { Rule } from './types.js'
-import { anyMatch, lineFor, makeFinding, markdownTextTargets, stripComments } from './helpers.js'
+import { lineFor, makeFinding, markdownTextTargets, shellMatchesAllGuarded, stripComments } from './helpers.js'
 import { firstLine } from '../util/lines.js'
 
 // Persistent agent-state targets: writing here survives across sessions.
@@ -41,7 +41,14 @@ export const rule: Rule = {
     // touches) does not read as a write to that path.
     for (const unit of ir.codeUnits) {
       const scan = stripComments(unit.source, unit.lang)
-      if (anyMatch(scan, WRITE_OPS) || (anyMatch(scan, STATE_TARGETS) && /(?:>>|>|writeFile|appendFile|open\s*\()/.test(scan))) {
+      // A state path named only inside a bash guard operand ([[ ]] / case) is
+      // being matched and blocked (a hook that denies writes to CLAUDE.md), not
+      // written. Count write ops and state targets only at a command position.
+      const fires = (re: RegExp) =>
+        re.test(scan) && (unit.lang !== 'bash' || !shellMatchesAllGuarded(scan, re))
+      const hasWriteOp = WRITE_OPS.some(fires)
+      const hasStateTarget = STATE_TARGETS.some(fires)
+      if (hasWriteOp || (hasStateTarget && /(?:>>|>|writeFile|appendFile|open\s*\()/.test(scan))) {
         const at = lineFor(scan, [...WRITE_OPS, ...STATE_TARGETS], unit.source)
         findings.push(
           makeFinding({
