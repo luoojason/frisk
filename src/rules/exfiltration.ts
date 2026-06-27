@@ -2,7 +2,7 @@ import type { Finding, SkillIR } from '../ir/types.js'
 import type { Rule } from './types.js'
 import { lineFor, makeFinding, shellMatchesAllGuarded, stripComments } from './helpers.js'
 
-const SECRET_PATTERNS: RegExp[] = [
+export const SECRET_PATTERNS: RegExp[] = [
   /~\/\.aws\b/,
   /~\/\.ssh\b/,
   /\bid_rsa\b/,
@@ -20,7 +20,7 @@ const SECRET_PATTERNS: RegExp[] = [
   /\bmetadata\.azure\.com\b/,
 ]
 
-const EGRESS_PATTERNS: RegExp[] = [
+export const EGRESS_PATTERNS: RegExp[] = [
   /\bcurl\b/,
   /\bwget\b/,
   /\/dev\/tcp\//,
@@ -47,7 +47,7 @@ const EGRESS_PATTERNS: RegExp[] = [
 ]
 
 // Egress to these hosts is suspicious even on its own.
-const SUSPICIOUS_HOSTS =
+export const SUSPICIOUS_HOSTS =
   /(?:pastebin\.com|webhook\.site|requestbin|ngrok\.io|\.ngrok-free\.app|discord(?:app)?\.com\/api\/webhooks|api\.telegram\.org|hookb\.in|pipedream\.net|burpcollaborator|interact\.sh|oast\.(?:fun|live|site|pro)|beeceptor\.com|canarytokens\.(?:com|org))/i
 
 // Base64-encode-then-egress: encodes data and transmits it (canonical exfil
