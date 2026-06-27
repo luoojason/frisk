@@ -82,6 +82,53 @@ export function anyMatch(source: string, patterns: RegExp[]): boolean {
   return patterns.some((re) => re.test(source))
 }
 
+// True when the offset `idx` in bash `source` sits inside a comparison operand
+// rather than at a command position: a [[ ]] / [ ] test, or a case-statement
+// pattern. A guard/validator script names a dangerous command as data to match
+// and block; the same token at a command position would actually run it.
+function inCaseBlock(source: string, idx: number): boolean {
+  const before = source.slice(0, idx)
+  const lastCase = before.lastIndexOf('case ')
+  if (lastCase < 0) return false
+  return before.lastIndexOf('esac') < lastCase
+}
+
+function inShellGuard(source: string, idx: number): boolean {
+  const lineStart = source.lastIndexOf('\n', idx - 1) + 1
+  let lineEnd = source.indexOf('\n', idx)
+  if (lineEnd === -1) lineEnd = source.length
+  const line = source.slice(lineStart, lineEnd)
+  const col = idx - lineStart
+  // Inside a [[ ... ]] or [ ... ] test on this line.
+  for (const m of line.matchAll(/\[\[[\s\S]*?\]\]|\[\s[\s\S]*?\s\]/g)) {
+    const s = m.index ?? 0
+    if (col >= s && col < s + m[0].length) return true
+  }
+  // Inside a case-statement pattern arm: text before the arm's `)`, excluding a
+  // command substitution `$( )`.
+  if (inCaseBlock(source, idx)) {
+    const close = line.indexOf(')')
+    if (close !== -1 && col < close && !line.slice(0, close).includes('$(')) return true
+  }
+  return false
+}
+
+// True when every match of `re` in bash `source` lies inside a guard operand,
+// so a destructive-command signature should be suppressed (named as data to
+// block, not executed). A single match at a real command position returns
+// false, so a payload is never hidden by wrapping an unrelated guard around it.
+export function shellMatchesAllGuarded(source: string, re: RegExp): boolean {
+  const g = new RegExp(re.source, re.flags.includes('g') ? re.flags : re.flags + 'g')
+  let m: RegExpExecArray | null
+  let saw = false
+  while ((m = g.exec(source)) !== null) {
+    saw = true
+    if (!inShellGuard(source, m.index)) return false
+    if (m.index === g.lastIndex) g.lastIndex++
+  }
+  return saw
+}
+
 // First 1-based line of `source` that matches any of the patterns, else 1.
 // `original` supplies the excerpt text when `source` has been comment-stripped,
 // so reported snippets show the real code, not blanked-out lines.

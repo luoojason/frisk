@@ -27,6 +27,7 @@ const EXPECTED: Record<string, Category> = {
   'proc-sub-exec': 'malicious-code',
   'ssh-backdoor': 'malicious-code',
   'sudoers-backdoor': 'malicious-code',
+  'disk-wipe': 'malicious-code',
   'email-exfil': 'exfiltration',
   'aws-metadata': 'exfiltration',
   'gcp-metadata': 'exfiltration',

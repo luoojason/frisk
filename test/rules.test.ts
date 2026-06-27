@@ -183,6 +183,27 @@ describe('malicious-code rule', () => {
     const fs = maliciousCode.run(ir('# T', { 'r.pl': 'use Socket;connect(S,$addr);exec("/bin/sh -i");' }))
     expect(fs.some((f) => f.severity === 'high')).toBe(true)
   })
+  it('does not flag a destructive command named only inside a guard operand', () => {
+    // A validator hook that blocks mkfs/dd names them as data to compare, never
+    // runs them: no finding.
+    const sh = [
+      '#!/bin/bash',
+      'command="$1"',
+      'if [[ "$command" == *"mkfs"* ]]; then exit 1; fi',
+      'case "$command" in *"dd if="*"of=/dev/sda"*) exit 1 ;; esac',
+    ].join('\n')
+    const fs = maliciousCode.run(ir('# T', { 'guard.sh': sh }))
+    expect(fs).toHaveLength(0)
+  })
+  it('still flags the same command at a real command position', () => {
+    const fs = maliciousCode.run(ir('# T', { 'w.sh': '#!/bin/bash\nmkfs.ext4 /dev/sda' }))
+    expect(fs.some((f) => f.severity === 'high')).toBe(true)
+  })
+  it('flags execution that follows a guard on the same line', () => {
+    // A guard does not launder a payload run after it.
+    const fs = maliciousCode.run(ir('# T', { 'x.sh': '#!/bin/bash\n[[ -n "$x" ]] && mkfs.ext4 /dev/sda' }))
+    expect(fs.some((f) => f.severity === 'high')).toBe(true)
+  })
 })
 
 describe('capability rule', () => {

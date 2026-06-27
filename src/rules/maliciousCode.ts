@@ -1,11 +1,14 @@
 import type { Finding, Severity, SkillIR } from '../ir/types.js'
 import type { Rule } from './types.js'
-import { lineFor, makeFinding, stripComments } from './helpers.js'
+import { lineFor, makeFinding, shellMatchesAllGuarded, stripComments } from './helpers.js'
 
 interface Sig {
   re: RegExp
   severity: Severity
   message: string
+  // A command that a guard/validator legitimately names as data to block. In
+  // bash, fire only at a command position, not inside a [[ ]] / case operand.
+  guardable?: boolean
 }
 
 const SIGNATURES: Sig[] = [
@@ -28,9 +31,9 @@ const SIGNATURES: Sig[] = [
   // Spawning an interactive shell (the payload of perl/ruby/etc reverse shells).
   { re: /\bexec\b[^\n]{0,40}\/bin\/(?:ba)?sh\s+-i\b/, severity: 'high', message: 'Spawns an interactive shell (reverse shell payload).' },
   // Destructive operations.
-  { re: /\brm\s+-rf?\b[^\n]*(?:\s|^)(?:~|\/|\$HOME|\$\{HOME\})(?:\s|\/|$)/, severity: 'high', message: 'Recursively deletes a home or root path.' },
-  { re: /\bdd\s+if=[^\n]*of=\/dev\/(?:sd|disk|nvme|hd)/, severity: 'high', message: 'Writes directly to a block device (data destruction).' },
-  { re: /\bmkfs(?:\.\w+)?\b/, severity: 'high', message: 'Formats a filesystem.' },
+  { re: /\brm\s+-rf?\b[^\n]*(?:\s|^)(?:~|\/|\$HOME|\$\{HOME\})(?:\s|\/|$)/, severity: 'high', message: 'Recursively deletes a home or root path.', guardable: true },
+  { re: /\bdd\s+if=[^\n]*of=\/dev\/(?:sd|disk|nvme|hd)/, severity: 'high', message: 'Writes directly to a block device (data destruction).', guardable: true },
+  { re: /\bmkfs(?:\.\w+)?\b/, severity: 'high', message: 'Formats a filesystem.', guardable: true },
   { re: /:\s*\(\s*\)\s*\{[^}]*:\s*\|\s*:/, severity: 'high', message: 'Fork bomb.' },
   // Persistence / privilege-escalation backdoors.
   { re: /(?:>>?|tee\s+(?:-a\s+)?)\s*\/etc\/sudoers\b/, severity: 'high', message: 'Modifies /etc/sudoers (privilege-escalation backdoor).' },
@@ -58,6 +61,10 @@ export const rule: Rule = {
       const scan = stripComments(unit.source, unit.lang)
       for (const sig of SIGNATURES) {
         if (!sig.re.test(scan)) continue
+        // A guard/validator that names a destructive command only inside a
+        // [[ ]] / case operand is blocking it, not running it. Suppress unless
+        // the command also appears at a real command position.
+        if (sig.guardable && unit.lang === 'bash' && shellMatchesAllGuarded(scan, sig.re)) continue
         const at = lineFor(scan, [sig.re], unit.source)
         findings.push(
           makeFinding({
