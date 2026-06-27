@@ -37,6 +37,8 @@ const EXPECTED: Record<string, Category> = {
   'safety-disable': 'injection',
   'chmod-setuid': 'malicious-code',
   'base64-exfil': 'exfiltration',
+  // Cross-unit taint correlation (EXF-CORR): secret in one file, egress in another
+  'split-exfil': 'exfiltration',
 }
 
 describe('corpus gate', () => {
