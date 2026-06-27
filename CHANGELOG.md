@@ -1,6 +1,99 @@
 # Changelog
 
-## Unreleased (frisk/dig branch)
+## Unreleased (frisk/dig branch — continued)
+
+### New detection rule: EXF-CORR — Cross-unit taint correlation
+
+**EXF-CORR (exfiltration / severity varies / confidence varies)**
+The existing exfiltration rule analyzes each code unit in isolation. An attacker
+can split credential-read and network-egress across two scripts — neither file,
+alone, triggers the combined-taint signal.
+
+EXF-CORR looks at all code units in a skill *collectively*. It fires when:
+- at least one unit reads secrets/credentials (existing `SECRET_PATTERNS`)
+- at least one *different* unit performs network egress (`EGRESS_PATTERNS` /
+  `SUSPICIOUS_HOSTS`)
+- those two halves are genuinely disjoint (not just a skill where every
+  secret-bearing unit also has egress — that is already caught by the per-unit
+  rule)
+
+Severity is scaled by egress destination in the egress-bearing unit(s):
+
+| Egress evidence | Severity | Confidence |
+|---|---|---|
+| Known exfil host (webhook.site, requestbin, ngrok …) | high | high |
+| Literal external HTTPS URL (identifiable host, non-suspicious) | medium | medium |
+| Generic egress — variable URL, nc, /dev/tcp, bare curl | low | low |
+
+This contract means a legitimate skill that `source .env` in one script and
+calls `curl "$API_URL"` in another produces **at most low** from EXF-CORR (no
+literal suspicious host, no URL literal), satisfying the precision gate.
+
+- Rule ID: `exfil-corr` (`src/rules/crossUnitTaint.ts`)
+- Pattern sets: reuses exported `SECRET_PATTERNS`, `EGRESS_PATTERNS`, and
+  `SUSPICIOUS_HOSTS` from `src/rules/exfiltration.ts` — no duplication.
+- Malicious fixture: `test/fixtures/malicious/split-exfil` — `collect.sh`
+  reads `~/.aws/credentials`, `send.sh` ships the payload to `webhook.site`.
+  → EXF-CORR fires **high/high**.
+- Benign fixture: `test/fixtures/benign/split-env-api` — `config.sh` sources
+  `.env`, `check.sh` curls `$HEALTH_URL` (variable, no literal host).
+  → EXF-CORR fires **low** only. Zero HIGH findings on the benign corpus.
+
+### Rule hardening: maliciousCode eval/exec obfuscation (hex decoding)
+
+`exec(bytes.fromhex("..."))` in Python was not matched by the existing obfuscated
+eval/exec pattern. Added `fromhex\s*\(` as an alternate in the SIGNATURES entry:
+
+```
+/\b(?:eval|exec)\b[^\n]*(?:\$\(|atob\s*\(|base64|fromCharCode|b64decode|fromhex\s*\()/
+```
+
+Combined with the existing `base64 -d | bash` signature, this closes the most
+common static-level obfuscation paths.
+
+### Pattern re-exports
+
+`SECRET_PATTERNS`, `EGRESS_PATTERNS`, and `SUSPICIOUS_HOSTS` are now exported
+from `src/rules/exfiltration.ts` so the cross-unit rule can share them without
+duplication.
+
+### New corpus fixtures
+
+| Fixture | Type | Category detected |
+|---------|------|-------------------|
+| `test/fixtures/malicious/split-exfil` | malicious | exfiltration (EXF-CORR) |
+| `test/fixtures/benign/split-env-api` | benign (precision guard) | — |
+
+### Adversarial evasion corpus (`test/evasion.test.ts`)
+
+A 26-test red-team suite that probes frisk's obfuscation resistance. Summary:
+
+**Caught:**
+- Zero-width chars in visible text (`over​ride`) — markdown strips ZWSP before
+  injection patterns run; also flagged as a hidden-span finding.
+- HTML comments with injection instructions — already caught by injection rule.
+- Tiny-text `<span style="font-size:0">` — already caught by injection rule.
+- Attack payload in collapsed `<details>` block — content is not stripped from
+  `visibleText`, injection patterns match.
+- `echo "BLOB" | base64 -d | bash` — already caught by maliciousCode SIGNATURES.
+- `eval(String.fromCharCode(...))` in JS — already caught.
+- `exec(bytes.fromhex("..."))` in Python — now caught after hardening above.
+- `exec(base64.b64decode("..."))` in Python — already caught.
+- Trailing-dot FQDN (`webhook.site.`) — SUSPICIOUS_HOSTS is a substring match,
+  already handles trailing dot.
+
+**Known limitations (documented below and in README):**
+- Keyword split with space: `ig nore previous instructions`
+- Cyrillic homoglyph substitution: `оverrіde` (Cyrillic о, not Latin o)
+- IP address in decimal notation: `curl http://3221225985/`
+- Hostname string concatenation: `"web" + "hook.site"`
+- `bytes.fromhex()` / `fromCharCode()` decoded to a *variable* (no exec/eval on
+  same line) — data-flow analysis required
+
+### Test counts
+
+Before this work: 120 tests. After: 155 tests (+35). Typecheck: clean.
+Malicious recall: 28/28. Benign precision gate: zero HIGH FPs on 10 benign skills.
 
 ### New detection rules
 
