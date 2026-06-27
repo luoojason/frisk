@@ -70,6 +70,21 @@ describe('exfiltration rule', () => {
     const fs = exfiltration.run(ir('# T', { 'a.sh': 'curl https://api.github.com/repos/foo/bar' }))
     expect(fs.every((f) => f.severity === 'low')).toBe(true)
   })
+  it('does not flag a credential path named only inside a deny-guard', () => {
+    // A hook that blocks access to .env / id_rsa names those paths to compare,
+    // it does not read them.
+    const sh = [
+      '#!/bin/bash',
+      'file_path="$1"',
+      'if [[ "$file_path" == *.env ]] || [[ "$file_path" == *"id_rsa"* ]]; then exit 1; fi',
+    ].join('\n')
+    const fs = exfiltration.run(ir('# T', { 'guard.sh': sh }))
+    expect(fs).toHaveLength(0)
+  })
+  it('still flags a real secret read at a command position', () => {
+    const fs = exfiltration.run(ir('# T', { 'a.sh': '#!/bin/bash\ncat ~/.ssh/id_rsa' }))
+    expect(fs.some((f) => f.severity === 'medium')).toBe(true)
+  })
 })
 
 describe('poisoning rule', () => {
@@ -202,6 +217,11 @@ describe('malicious-code rule', () => {
   it('flags execution that follows a guard on the same line', () => {
     // A guard does not launder a payload run after it.
     const fs = maliciousCode.run(ir('# T', { 'x.sh': '#!/bin/bash\n[[ -n "$x" ]] && mkfs.ext4 /dev/sda' }))
+    expect(fs.some((f) => f.severity === 'high')).toBe(true)
+  })
+  it('flags a command substitution inside a test (it executes)', () => {
+    // `[[ $(mkfs ...) ]]` runs mkfs; the surrounding [[ ]] does not make it a guard.
+    const fs = maliciousCode.run(ir('# T', { 'b.sh': '#!/bin/bash\n[[ -n $(mkfs.ext4 /dev/sda) ]]' }))
     expect(fs.some((f) => f.severity === 'high')).toBe(true)
   })
 })

@@ -1,6 +1,6 @@
 import type { Finding, SkillIR } from '../ir/types.js'
 import type { Rule } from './types.js'
-import { anyMatch, lineFor, makeFinding } from './helpers.js'
+import { lineFor, makeFinding, shellMatchesAllGuarded } from './helpers.js'
 
 const SECRET_PATTERNS: RegExp[] = [
   /~\/\.aws\b/,
@@ -57,9 +57,15 @@ export const rule: Rule = {
 
     for (const unit of ir.codeUnits) {
       const src = unit.source
-      const hasSecret = anyMatch(src, SECRET_PATTERNS)
-      const hasEgress = anyMatch(src, EGRESS_PATTERNS)
-      const hasSuspHost = SUSPICIOUS_HOSTS.test(src)
+      // A deny-guard names a secret path or egress tool as data to compare
+      // (`[[ "$file_path" == *.env ]]`), it does not read or call it. In bash,
+      // count a pattern only when it appears at a command position, not solely
+      // inside a [[ ]] / case operand.
+      const fires = (re: RegExp) =>
+        re.test(src) && (unit.lang !== 'bash' || !shellMatchesAllGuarded(src, re))
+      const hasSecret = SECRET_PATTERNS.some(fires)
+      const hasEgress = EGRESS_PATTERNS.some(fires)
+      const hasSuspHost = fires(SUSPICIOUS_HOSTS)
 
       if (hasSecret && (hasEgress || hasSuspHost)) {
         const at = lineFor(src, SECRET_PATTERNS)

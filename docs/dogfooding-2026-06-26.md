@@ -42,23 +42,26 @@ These are real tensions between precision and recall. Fixing them naively would
 widen frisk's blind spots, which is the wrong trade for a security scanner. They
 are documented here so the trade can be made deliberately, not by accident.
 
-### A. Defensive-guard scripts (false positive, hard to fix)
+### A. Defensive-guard scripts (RESOLVED)
 
 A script whose whole job is to *block* dangerous commands must name those
-commands as data.
+commands as data, which read as the command itself.
 
-- `plugin-dev/hook-development` `examples/validate-bash.sh:31` — RED, ASI05
+- `plugin-dev/hook-development` `examples/validate-bash.sh` was RED, ASI05
   "Formats a filesystem", matched `mkfs` inside `[[ "$command" == *"mkfs"* ]]`.
-- `plugin-dev/plugin-settings` `examples/read-settings-hook.sh:41` — YELLOW,
+- `plugin-dev/plugin-settings` `examples/read-settings-hook.sh` was YELLOW,
   ASI06, matched `.env` / `secret` inside `[[ "$file_path" == *".env"* ]]`, a
   hook that *denies* access to those files.
 
-The dangerous token is inside a string literal used for comparison, not at a
-command position. A real fix would require not matching signatures inside string
-literals, which would miss payloads that live in strings (`eval("rm -rf /")`,
-`open("~/.claude/CLAUDE.md","w")`). Option worth considering: for shell, only
-fire the destructive-command signatures at a command position (statement start,
-or after `;` `&&` `|`), not inside a quoted `[[ ]]` / `case` operand.
+Fixed without stripping string literals (which would miss payloads that live in
+strings). For bash, the destructive-command signatures (mkfs / rm -rf / dd) and
+the exfiltration secret/egress patterns now fire only at a command position, not
+when the token appears solely inside a `[[ ]]` / `[ ]` test or a `case` pattern.
+A command substitution `$( )` or backtick inside a test still counts as
+executing, so `[[ $(mkfs ...) ]]` is not laundered, and a real command chained
+after a guard (`[[ x ]] && mkfs ...`) still fires. After the fix, both skills
+above are GREEN and the full sweep moved to 307 GREEN / 11 YELLOW / 4 RED with
+malicious recall unchanged at 23/23.
 
 ### B. Authenticated API clients (defensible, but RED is too strong)
 
@@ -97,11 +100,10 @@ header rather than copied into a request body.
 ## Recommendation before a public launch
 
 - Ship the three fixes in this batch (done).
-- Decide A and B deliberately. They are the classes most likely to make frisk
-  look noisy on legitimate developer tooling, which is the credibility risk on a
-  Show HN. A targeted command-position check for shell signatures (A) and a
-  severity downgrade for same-service credential use (B) would remove most of
-  the remaining noise without stripping strings.
+- Class A (defensive guards) is fixed with the command-position check (done).
+- Decide B deliberately: a severity downgrade for same-service credential use
+  would remove the last noise class most likely to look wrong on legitimate
+  developer tooling, the credibility risk on a Show HN.
 - Treat C and D as acceptable "review" outcomes, or add narrow allowances.
 - Re-run this full sweep (`for d in $(find ~/.claude -name SKILL.md); do frisk
   "$(dirname "$d")" --quiet; done`) before each release. It catches what the

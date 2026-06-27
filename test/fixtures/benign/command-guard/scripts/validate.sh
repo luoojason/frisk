@@ -21,4 +21,12 @@ case "$command" in
     ;;
 esac
 
+# Deny reads of credential files. The paths are named to match and block, never
+# opened.
+file_path="$2"
+if [[ "$file_path" == *.env ]] || [[ "$file_path" == *secret* ]] || [[ "$file_path" == *"id_rsa"* ]]; then
+  echo "blocked: credential file" >&2
+  exit 1
+fi
+
 exit 0

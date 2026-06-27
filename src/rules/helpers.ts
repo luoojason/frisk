@@ -93,7 +93,22 @@ function inCaseBlock(source: string, idx: number): boolean {
   return before.lastIndexOf('esac') < lastCase
 }
 
+// True when `idx` sits inside a command substitution `$( )` or backticks, where
+// the command runs even if the surrounding text is a test or case word
+// (`[[ $(mkfs ...) ]]`). Such a position is never a guard.
+function inCommandSub(source: string, idx: number): boolean {
+  const before = source.slice(0, idx)
+  if ((before.match(/(?<!\\)`/g) || []).length % 2 === 1) return true
+  let depth = 0
+  for (let i = 0; i < before.length; i++) {
+    if (before[i] === '$' && before[i + 1] === '(') { depth++; i++; continue }
+    if (before[i] === ')' && depth > 0) depth--
+  }
+  return depth > 0
+}
+
 function inShellGuard(source: string, idx: number): boolean {
+  if (inCommandSub(source, idx)) return false
   const lineStart = source.lastIndexOf('\n', idx - 1) + 1
   let lineEnd = source.indexOf('\n', idx)
   if (lineEnd === -1) lineEnd = source.length
