@@ -1,6 +1,6 @@
 import type { Finding, SkillIR } from '../ir/types.js'
 import type { Rule } from './types.js'
-import { anyMatch, lineFor, makeFinding } from './helpers.js'
+import { anyMatch, lineFor, makeFinding, stripComments } from './helpers.js'
 
 const NETWORK: RegExp[] = [/\bcurl\b/, /\bwget\b/, /\bfetch\s*\(/, /requests\.(?:get|post)/, /urllib/, /\baxios\b/, /http\.client/, /socket\./]
 const SECRET: RegExp[] = [/~\/\.aws\b/, /~\/\.ssh\b/, /\bid_rsa\b/, /(^|[^\w.])\.env\b/, /_TOKEN\b|_SECRET\b|_API_?KEY\b|_PASSWORD\b/]
@@ -35,6 +35,11 @@ export const rule: Rule = {
     const declaredStr = ir.declaredCapabilities.join(', ')
 
     for (const unit of ir.codeUnits) {
+      // Strip comments before checking so a comment like `# rm old files` or
+      // `# curl https://example.com` does not produce a false-positive capability
+      // mismatch finding. Line offsets are preserved because stripComments replaces
+      // comment characters with spaces rather than removing them.
+      const stripped = stripComments(unit.source, unit.lang)
       const checks: { ok: boolean; pats: RegExp[]; label: string }[] = [
         { ok: auth.network, pats: NETWORK, label: 'makes network requests' },
         { ok: auth.secret, pats: SECRET, label: 'reads credentials/secrets' },
@@ -43,8 +48,8 @@ export const rule: Rule = {
       ]
       for (const c of checks) {
         if (c.ok) continue
-        if (!anyMatch(unit.source, c.pats)) continue
-        const at = lineFor(unit.source, c.pats)
+        if (!anyMatch(stripped, c.pats)) continue
+        const at = lineFor(stripped, c.pats, unit.source)
         findings.push(
           makeFinding({
             ruleId: id,

@@ -1,6 +1,6 @@
 import type { Finding, SkillIR } from '../ir/types.js'
 import type { Rule } from './types.js'
-import { lineFor, makeFinding, shellMatchesAllGuarded } from './helpers.js'
+import { lineFor, makeFinding, shellMatchesAllGuarded, stripComments } from './helpers.js'
 
 const SECRET_PATTERNS: RegExp[] = [
   /~\/\.aws\b/,
@@ -25,6 +25,7 @@ const EGRESS_PATTERNS: RegExp[] = [
   /\bwget\b/,
   /\/dev\/tcp\//,
   /\brequests\.(?:get|post|put|patch)\b/,
+  /\bhttpx\.(?:get|post|put|patch|request)\b/,
   /\burllib\.request\b/,
   /\bhttp\.client\b/,
   /\bfetch\s*\(/,
@@ -34,8 +35,11 @@ const EGRESS_PATTERNS: RegExp[] = [
   /\bnc\b\s/,
   /\bscp\b|\bsftp\b/,
   // DNS-tunnel exfiltration: the query name itself carries the data out.
+  // Matches nslookup, and dig invocations that contain a variable-as-subdomain
+  // (the classic `dig $DATA.attacker.com` pattern) or explicit server/short flags.
   /\bnslookup\b/,
-  /\bdig\s+(?:@|\+short\b|[\w-]+\.[a-z])/,
+  /\bdig\b[^#\n]*\$\{?[A-Z_a-z][A-Z0-9_a-z]*\}?[^#\n]*\.[a-z]{2,}/,
+  /\bdig\s+(?:@|\+short\b)/,
   /\bgetent\s+hosts\b/,
   // Email as an exfiltration channel.
   /\b(?:sendmail|mailx)\b/,
@@ -44,7 +48,13 @@ const EGRESS_PATTERNS: RegExp[] = [
 
 // Egress to these hosts is suspicious even on its own.
 const SUSPICIOUS_HOSTS =
-  /(?:pastebin\.com|webhook\.site|requestbin|ngrok\.io|\.ngrok-free\.app|discord(?:app)?\.com\/api\/webhooks|api\.telegram\.org|hookb\.in|pipedream\.net|burpcollaborator|interact\.sh|oast\.(?:fun|live|site|pro))/i
+  /(?:pastebin\.com|webhook\.site|requestbin|ngrok\.io|\.ngrok-free\.app|discord(?:app)?\.com\/api\/webhooks|api\.telegram\.org|hookb\.in|pipedream\.net|burpcollaborator|interact\.sh|oast\.(?:fun|live|site|pro)|beeceptor\.com|canarytokens\.(?:com|org))/i
+
+// Base64-encode-then-egress: encodes data and transmits it (canonical exfil
+// obfuscation). Standalone this is medium/medium; combined with a secret read it
+// rolls up into the high/high taint finding above.
+const BASE64_EGRESS =
+  /\bbase64\b(?:\s+-w\s*0)?\s*[^|#\n]*\|\s*(?:curl|wget)\b/
 
 const id = 'exfiltration'
 
@@ -56,19 +66,24 @@ export const rule: Rule = {
     const findings: Finding[] = []
 
     for (const unit of ir.codeUnits) {
-      const src = unit.source
+      // Strip comments before pattern testing so a path or command mentioned only
+      // in a comment (e.g. documentation describing what a cleanup script touches)
+      // does not produce a false-positive finding. Line offsets are preserved
+      // because stripComments replaces comment chars with spaces, not removes them.
+      const stripped = stripComments(unit.source, unit.lang)
       // A deny-guard names a secret path or egress tool as data to compare
       // (`[[ "$file_path" == *.env ]]`), it does not read or call it. In bash,
       // count a pattern only when it appears at a command position, not solely
       // inside a [[ ]] / case operand.
       const fires = (re: RegExp) =>
-        re.test(src) && (unit.lang !== 'bash' || !shellMatchesAllGuarded(src, re))
+        re.test(stripped) && (unit.lang !== 'bash' || !shellMatchesAllGuarded(stripped, re))
       const hasSecret = SECRET_PATTERNS.some(fires)
       const hasEgress = EGRESS_PATTERNS.some(fires)
       const hasSuspHost = fires(SUSPICIOUS_HOSTS)
+      const hasBase64Egress = fires(BASE64_EGRESS)
 
       if (hasSecret && (hasEgress || hasSuspHost)) {
-        const at = lineFor(src, SECRET_PATTERNS)
+        const at = lineFor(stripped, SECRET_PATTERNS, unit.source)
         findings.push(
           makeFinding({
             ruleId: id,
@@ -84,8 +99,28 @@ export const rule: Rule = {
         )
         continue
       }
+      if (hasBase64Egress) {
+        // base64-encode-then-send is a canonical exfiltration obfuscation
+        // technique. Flag as medium standalone; it rolls up to high when a secret
+        // read is also present (caught by the combined branch above).
+        const at = lineFor(stripped, [BASE64_EGRESS], unit.source)
+        findings.push(
+          makeFinding({
+            ruleId: id,
+            category: 'exfiltration',
+            severity: 'medium',
+            confidence: 'medium',
+            file: unit.file,
+            line: at.line,
+            excerpt: at.text,
+            message: 'Script base64-encodes data and transmits it over the network — a common data-exfiltration obfuscation pattern.',
+            remediation: 'Verify the base64-encoded payload does not contain credentials or sensitive data.',
+          }),
+        )
+        continue
+      }
       if (hasSecret) {
-        const at = lineFor(src, SECRET_PATTERNS)
+        const at = lineFor(stripped, SECRET_PATTERNS, unit.source)
         findings.push(
           makeFinding({
             ruleId: id,
@@ -102,7 +137,7 @@ export const rule: Rule = {
         continue
       }
       if (hasSuspHost) {
-        const at = lineFor(src, [SUSPICIOUS_HOSTS])
+        const at = lineFor(stripped, [SUSPICIOUS_HOSTS], unit.source)
         findings.push(
           makeFinding({
             ruleId: id,
@@ -119,7 +154,7 @@ export const rule: Rule = {
         continue
       }
       if (hasEgress) {
-        const at = lineFor(src, EGRESS_PATTERNS)
+        const at = lineFor(stripped, EGRESS_PATTERNS, unit.source)
         findings.push(
           makeFinding({
             ruleId: id,
