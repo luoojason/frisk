@@ -5,10 +5,11 @@ import { rule as exfiltration } from './exfiltration.js'
 import { rule as poisoning } from './poisoning.js'
 import { rule as maliciousCode } from './maliciousCode.js'
 import { rule as capability } from './capability.js'
+import { rule as crossUnitTaint } from './crossUnitTaint.js'
 import { llmJudge } from './llmJudge.js'
 
 export function allRules(): Rule[] {
-  return [injection, exfiltration, poisoning, maliciousCode, capability]
+  return [injection, exfiltration, poisoning, maliciousCode, capability, crossUnitTaint]
 }
 
 export interface RunRulesOptions {
